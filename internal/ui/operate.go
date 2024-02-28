@@ -799,3 +799,42 @@ func delSongFromPlaylist(m *Netease) model.Page {
 func clearSongCache(m *Netease) {
 	m.MustMain().EnterMenu(NewClearSongCacheMenu(newBaseMenu(m), m), &model.MenuItem{Title: "清除缓存", Subtitle: "确定清除缓存"})
 }
+
+func DownLoadLrc(m *Netease) {
+	loading := model.NewLoading(m.MustMain())
+	loading.Start()
+	defer loading.Complete()
+
+	if m.player.curSongIndex >= len(m.player.playlist) {
+		return
+	}
+	curSong := m.player.playlist[m.player.curSongIndex]
+	//utils.DownloadLrc(curSong)
+	lrcService := service.LyricService{
+		ID: strconv.FormatInt(curSong.Id, 10),
+	}
+	code, response := lrcService.Lyric()
+	if code != 200 {
+		return
+	}
+	lrc, err := jsonparser.GetString(response, "lrc", "lyric")
+	if err != nil {
+		return
+	}
+	err = os.WriteFile(curSong.Name+".lrc", []byte(lrc), 0644)
+	if err != nil {
+		utils.Notify(utils.NotifyContent{
+			Title:   "下载歌词失败",
+			Text:    err.Error(),
+			Url:     types.AppGithubUrl,
+			GroupId: types.GroupID,
+		})
+	} else {
+		utils.Notify(utils.NotifyContent{
+			Title:   "下载歌词成功",
+			Text:    curSong.Name + ".lrc 已保存到当前目录",
+			Url:     types.AppGithubUrl,
+			GroupId: types.GroupID,
+		})
+	}
+}

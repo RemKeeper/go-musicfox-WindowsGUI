@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="referrer" content="never">
+    <title>播放列表</title>
+    <style>
+        @keyframes fadeIn {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0px);
+                opacity: 1;
+            }
+        }
+
+        /*隐藏整个页面的滚动条*/
+        body::-webkit-scrollbar {
+            display: none;
+        }
+
+        .playingSong {
+            animation: fadeIn 0.5s ease-in-out;
+            display: flex;
+            align-items: center;
+            height: 20%;
+            padding: 1%;
+            border-radius: 10px;
+            border: 2px solid cyan;
+
+        }
+
+        .waitSongInfo{
+            animation: fadeIn 0.5s ease-in-out;
+            display: flex;
+            align-items: center;
+            padding: 5px;
+            margin-top: 5px;
+            border-radius: 10px;
+            border: 2px solid cyan;
+        }
+
+        .waitSongName{
+            margin-left: 10px;
+            color: #03d5d5;
+        }
+
+        .waitSongSinger{
+            margin-left: 10px;
+            color: #01b9b9;
+            font-size: 10px;
+        }
+
+        .songInfo {
+            display: flex;
+            flex-direction: column;
+            margin-left: 10px;
+            width: 200px;
+        }
+
+        .cover img {
+            display: flex;
+            border-radius: 5px;
+            width: 60px;
+            height: 60px;
+        }
+
+        @media screen and (min-width: 600px) {
+            .songInfo {
+                width: 45%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        }
+
+        .songName a {
+            color: cyan;
+            text-shadow: -1px -1px 0 #000000, 1px -1px 0 black, -1px 1px 0 black, 1px 1px 0 black;
+            font-size: 20px;
+            vertical-align: top;
+        }
+
+
+        .singer a {
+            color: #0c8888;
+            font-size: 15px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #app {
+            padding: 5px;
+            border-radius: 10px;
+            border: 2px solid cyan;
+        }
+
+        .lyricism{
+            margin-right: 10px;
+            /*font-size: 13px;*/
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            align-items: center;
+        }
+
+        .lyricism a{
+            color: #0c8888;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div class="playingSong">
+        <div class="cover">
+            <img src="https://i2.hdslb.com/bfs/face/77c57a7b660b222460e738f639cdb600cb98ed4c.jpg">
+        </div>
+        <div class="songInfo">
+            <div class="songName">
+                <a>歌曲名字</a>
+            </div>
+            <div class="singer">
+                <a>歌手名字</a>
+            </div>
+        </div>
+        <div class="lyricism">
+            <a>这是一句歌词</a>
+            <a>这是一句歌词</a>
+            <a>这是一句歌词</a>
+        </div>
+    </div>
+    <div class="playList">
+        <div class="waitSongInfo">
+            <div class="waitSongName">
+                <a>歌曲名字</a>
+            </div>
+            <div class="waitSongSinger">
+                <a>歌手名字</a>
+            </div>
+        </div>
+        <div class="waitSongInfo">
+            <div class="waitSongName">
+                <a>歌曲名字</a>
+            </div>
+            <div class="waitSongSinger">
+                <a>歌手名字</a>
+            </div>
+        </div>
+        <div class="waitSongInfo">
+            <div class="waitSongName">
+                <a>歌曲名字</a>
+            </div>
+            <div class="waitSongSinger">
+                <a>歌手名字</a>
+            </div>
+        </div>
+
+    </div>
+</div>
+<script>
+
+    class PlaylistParser {
+        constructor(jsonString) {
+            this.data = JSON.parse(jsonString);
+        }
+
+        getPlaylist() {
+            return this.data.PlayList;
+        }
+
+        getCurrentSongIndex() {
+            return this.data.CurSongIndex;
+        }
+
+        getSongId(index) {
+            return this.data.PlayList[index].id;
+        }
+
+        getSongName(index) {
+            return this.data.PlayList[index].name;
+        }
+
+        getSongDuration(index) {
+            return this.data.PlayList[index].duration;
+        }
+
+        getSongArtists(index) {
+            return this.data.PlayList[index].artists;
+        }
+
+        getAlbumId(index) {
+            return this.data.PlayList[index].album.id;
+        }
+
+        getAlbumName(index) {
+            return this.data.PlayList[index].album.name;
+        }
+
+        getAlbumPicUrl(index) {
+            return this.data.PlayList[index].album.pic_url;
+        }
+
+        getAlbumArtists(index) {
+            return this.data.PlayList[index].artists;
+        }
+
+        getAlbumArtistsName(index){
+            let ArtistsName= [];
+
+
+            this.data.PlayList[index].artists.forEach(
+                (item)=>{
+                    ArtistsName.push(item.name)
+                }
+            )
+            return ArtistsName.join("，");
+        }
+    }
+
+
+
+    let LastPlayIndex = -1;
+    let PlayListLength = 0;
+    function GetPlayIndex() {
+        let url = "http://127.0.0.1:99/getPlayIndex";
+        let xhr = new XMLHttpRequest();
+        xhr.open("GET", url, true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                let PlayIndex = JSON.parse(xhr.responseText);
+                if (PlayIndex.Index !== LastPlayIndex||PlayListLength!==PlayIndex.Length) {
+                    GetPlayList();
+                    LastPlayIndex = PlayIndex.Index
+                    PlayListLength = PlayIndex.Length
+                }
+            }
+        };
+        xhr.send();
+    }
+
+
+    function changeGradient(percentage) {
+        let element = document.querySelector('.playingSong'); // 选择你需要改变样式的元素
+        element.style.backgroundImage = `linear-gradient(to right, #87CEEB ${percentage}%, transparent 0%)`;
+    }
+
+    function GetLyrics(){
+        let url = "http://127.0.0.1:99/lyrics";
+        let xhr = new XMLHttpRequest();
+        xhr.open("GET", url, true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                let lyricism = document.querySelector(".lyricism");
+                lyricism.innerHTML = "";
+                let lyrics = JSON.parse(xhr.responseText);
+                for (let i = 0; i < lyrics.Lyric.length; i++) {
+                    if (i<=1){
+                        continue
+                    }
+                    if (i===2){
+                        let lyric = document.createElement("a");
+                        lyric.innerText = lyrics.Lyric[i];
+                        lyric.style.color="cyan";
+                        lyricism.appendChild(lyric);
+                    }else{
+                        let lyric = document.createElement("a");
+                        lyric.innerText = lyrics.Lyric[i];
+                        lyricism.appendChild(lyric);
+                    }
+
+                }
+
+                changeGradient(lyrics.PlayedTime/lyrics.Duration*100)
+            }
+        };
+        xhr.send();
+    }
+
+    setInterval(GetPlayIndex, 2000);
+    setInterval(GetLyrics,500)
+
+
+
+    function GetPlayList(){
+        let url = "http://127.0.0.1:99/playList";
+        let xhr = new XMLHttpRequest();
+        xhr.open("GET", url, true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                setPlayingSong(xhr.responseText);
+                setPlayList(xhr.responseText);
+            }
+        };
+        xhr.send();
+    }
+
+    function setPlayingSong(song){
+        let playingSong = document.querySelector(".playingSong");
+        let cover = playingSong.querySelector(".cover img");
+        let songName = playingSong.querySelector(".songName a");
+        let singer = playingSong.querySelector(".singer a");
+        const ParserPlayList = new PlaylistParser(song);
+        cover.src = ParserPlayList.getAlbumPicUrl(ParserPlayList.getCurrentSongIndex());
+        songName.innerText = ParserPlayList.getSongName(ParserPlayList.getCurrentSongIndex());
+        singer.innerText = ParserPlayList.getAlbumArtistsName(ParserPlayList.getCurrentSongIndex());
+    }
+
+    function setPlayList(song){
+        let playList = document.querySelector(".playList");
+        playList.innerHTML = "";
+        const ParserPlayList = new PlaylistParser(song);
+        for (let i = 0; i < ParserPlayList.getPlaylist().length; i++) {
+            if (i <= ParserPlayList.getCurrentSongIndex()) {
+                continue;
+            }
+
+            let waitSongInfo = document.createElement("div");
+            waitSongInfo.className = "waitSongInfo";
+            let waitSongName = document.createElement("div");
+            waitSongName.className = "waitSongName";
+            let waitSongSinger = document.createElement("div");
+            waitSongSinger.className = "waitSongSinger";
+            let songName = document.createElement("a");
+            songName.innerText = ParserPlayList.getSongName(i);
+            let singer = document.createElement("a");
+            singer.innerText = ParserPlayList.getAlbumArtistsName(i);
+            waitSongName.appendChild(songName);
+            waitSongSinger.appendChild(singer);
+            waitSongInfo.appendChild(waitSongName);
+            waitSongInfo.appendChild(waitSongSinger);
+            playList.appendChild(waitSongInfo);
+        }
+    }
+</script>
+</body>
+</html>

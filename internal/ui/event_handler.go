@@ -53,13 +53,18 @@ const (
 	OperateTypeAppendSongToCurPlaylist            = "appendSongToCurPlaylist"
 	OperateTypeClearSongCache                     = "clearSongCache"
 	OperateTypeRerender                           = "rerender"
+	OperateTypeDownLoadLrc                        = "downloadLrc"
 )
+
+// GlobalPlayer 全局player变量
+var GlobalPlayer *Player
 
 type EventHandler struct {
 	netease *Netease
 }
 
 func NewEventHandler(netease *Netease) *EventHandler {
+	GlobalPlayer = netease.player
 	return &EventHandler{
 		netease: netease,
 	}
@@ -133,6 +138,7 @@ var keyOperateMapping = map[string]OperateType{
 	"U":         OperateTypeClearSongCache,
 	"r":         OperateTypeRerender,
 	"R":         OperateTypeRerender,
+	"L":         OperateTypeDownLoadLrc,
 }
 
 func (h *EventHandler) KeyMsgHandle(msg tea.KeyMsg, _ *model.App) (bool, model.Page, tea.Cmd) {
@@ -277,6 +283,9 @@ func (h *EventHandler) handle(ot OperateType) (bool, model.Page, tea.Cmd) {
 	case OperateTypeRerender:
 		// rerender
 		return true, main, app.RerenderCmd(true)
+		// 保存歌词文本
+	case OperateTypeDownLoadLrc:
+		DownLoadLrc(h.netease)
 	default:
 		return false, nil, nil
 	}

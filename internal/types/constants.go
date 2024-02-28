@@ -6,7 +6,7 @@ import (
 
 var (
 	// AppVersion Inject by -ldflags
-	AppVersion   = "v3.7.0"
+	AppVersion   = "v4.7.0"
 	LastfmKey    = ""
 	LastfmSecret = ""
 )

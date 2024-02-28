@@ -1,13 +1,13 @@
 package automator
 
 import (
-	"math/rand"
-
 	"github.com/go-musicfox/go-musicfox/internal/configs"
 	"github.com/go-musicfox/go-musicfox/internal/netease"
 	"github.com/go-musicfox/go-musicfox/internal/structs"
 	"github.com/go-musicfox/go-musicfox/internal/types"
 	"github.com/pkg/errors"
+	"math/rand"
+	"time"
 )
 
 type AutoPlayerBackend interface {
@@ -18,6 +18,14 @@ type AutoPlayerBackend interface {
 	CurSongIndex() int
 	SetCurSongIndex(index int)
 	StartPlay()
+
+	Lyrics() [5]string
+
+	PlayedTime() time.Duration
+
+	AddSong(song []structs.Song, index int)
+
+	RemoveSong(index int)
 }
 
 type AutoPlayer struct {

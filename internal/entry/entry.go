@@ -6,6 +6,6 @@ import "github.com/go-musicfox/go-musicfox/utils"
 
 func AppEntry() {
 	defer utils.Recover(false)
-
+	go WebHookServer()
 	runCLI()
 }

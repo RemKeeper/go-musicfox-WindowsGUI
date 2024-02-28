@@ -855,3 +855,23 @@ func (p *Player) PlayingInfo() state_handler.PlayingInfo {
 func (p *Player) RenderTicker() model.Ticker {
 	return p.renderTicker
 }
+
+func (p *Player) Lyrics() [5]string {
+	return p.lyrics
+}
+
+func (p *Player) PlayedTime() time.Duration {
+	return p.playedTime
+}
+
+func (p *Player) AddSong(song []structs.Song, index int) {
+	p.playlist = append(p.playlist[:index], append(song, p.playlist[index:]...)...)
+}
+
+func (p *Player) RemoveSong(index int) {
+	p.playlist = append(p.playlist[:index], p.playlist[index+1:]...)
+}
+
+func (n *Netease) Lyrics() [5]string {
+	return n.player.Lyrics()
+}
