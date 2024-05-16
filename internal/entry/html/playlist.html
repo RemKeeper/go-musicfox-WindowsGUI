@@ -67,14 +67,32 @@
             height: 60px;
         }
 
-        @media screen and (min-width: 600px) {
-            .songInfo {
-                width: 45%;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
+        /*@media screen and (min-width: 600px) {*/
+        /*    .songInfo {*/
+        /*        width: 45%;*/
+        /*        overflow: hidden;*/
+        /*        text-overflow: ellipsis;*/
+        /*        white-space: nowrap;*/
+        /*    }*/
+        /*}*/
+
+        @media screen and (max-width: 599px) {
+            .songInfo, .waitSongInfo {
+                flex-direction: column;
+                align-items: start;
+            }
+            .songName a, .waitSongName a {
+                font-size: 4vw;
+            }
+            .singer a, .waitSongSinger a {
+                font-size: 3.5vw;
+            }
+            .cover img {
+                width: 50px; /* Adjust image size for small screens */
+                height: 50px;
             }
         }
+
 
         .songName a {
             color: cyan;
