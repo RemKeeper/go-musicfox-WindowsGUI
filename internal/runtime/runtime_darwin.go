@@ -3,12 +3,21 @@
 package runtime
 
 import (
+	goruntime "runtime"
+
 	"github.com/ebitengine/purego/objc"
 
 	"github.com/go-musicfox/go-musicfox/internal/macdriver/cocoa"
 	"github.com/go-musicfox/go-musicfox/internal/macdriver/core"
 	"github.com/go-musicfox/go-musicfox/utils/errorx"
 )
+
+// init locks the main goroutine to the OS main thread.
+// This is required because NSApplication.run() must be called from
+// the main thread, otherwise AppKit raises SIGTRAP.
+func init() {
+	goruntime.LockOSThread()
+}
 
 func Run(f func()) {
 	defer errorx.Recover(false)
@@ -22,7 +31,7 @@ func Run(f func()) {
 		errorx.Go(func() {
 			core.Autorelease(func() {
 				f()
-				app.Terminate(0)
+				app.TerminateOnMainThread(objc.ID(0))
 			})
 		})
 	})

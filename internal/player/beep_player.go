@@ -53,6 +53,9 @@ type beepPlayer struct {
 	httpClient *http.Client
 
 	close chan struct{}
+
+	spectrum         *PCMAnalyzer
+	spectrumConsumer func(sampleRate float64, samplesL, samplesR []float32)
 }
 
 func NewBeepPlayer() *beepPlayer {
@@ -71,6 +74,10 @@ func NewBeepPlayer() *beepPlayer {
 		},
 		httpClient: &http.Client{},
 		close:      make(chan struct{}),
+	}
+
+	if configs.AppConfig.Main.Visualizer.Enable || (configs.AppConfig.Main.Lyric.DesktopLyrics.SpectrumEnabled && desktopLyricsAvailable) {
+		p.spectrum = NewPCMAnalyzer(configs.AppConfig.Main.FrameRate.Interval())
 	}
 
 	errorx.WaitGoStart(p.listen)
@@ -126,10 +133,10 @@ func (p *beepPlayer) listen() {
 			if prevSongId != p.curMusic.Id || !filex.FileOrDirExists(cacheFile) {
 				// FIXME: 先这样处理，暂时没想到更好的办法
 				_ = os.Remove(cacheFile)
-				if p.cacheReader, err = os.OpenFile(cacheFile, os.O_CREATE|os.O_TRUNC|os.O_RDONLY, 0666); err != nil {
+				if p.cacheReader, err = os.OpenFile(cacheFile, os.O_CREATE|os.O_TRUNC|os.O_RDONLY, 0o666); err != nil {
 					panic(err)
 				}
-				if p.cacheWriter, err = os.OpenFile(cacheFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666); err != nil {
+				if p.cacheWriter, err = os.OpenFile(cacheFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o666); err != nil {
 					panic(err)
 				}
 
@@ -157,7 +164,7 @@ func (p *beepPlayer) listen() {
 					// 除了MP3格式，其他格式无需重载
 					if p.curMusic.Type == Mp3 && configs.AppConfig.Player.Beep.Mp3Decoder != types.BeepMiniMp3Decoder {
 						// 需再开一次文件，保证其指针变化，否则将概率导致 p.ctrl.Streamer = beep.Seq(……) 直接停止播放
-						cacheReader, _ := os.OpenFile(cacheFile, os.O_RDONLY, 0666)
+						cacheReader, _ := os.OpenFile(cacheFile, os.O_RDONLY, 0o666)
 						// 使用新的文件后需手动Seek到上次播放处
 						lastStreamer := p.curStreamer
 						defer func() { _ = lastStreamer.Close() }()
@@ -190,7 +197,7 @@ func (p *beepPlayer) listen() {
 			} else {
 				// 单曲循环以及歌单只有一首歌时不再请求网络
 				p.cacheDownloaded = true
-				if p.cacheReader, err = os.OpenFile(cacheFile, os.O_RDONLY, 0666); err != nil {
+				if p.cacheReader, err = os.OpenFile(cacheFile, os.O_RDONLY, 0o666); err != nil {
 					panic(err)
 				}
 			}
@@ -201,6 +208,10 @@ func (p *beepPlayer) listen() {
 			}
 
 			slog.Info("current song sample rate", slog.Int("sample_rate", int(p.curFormat.SampleRate)))
+
+			if p.spectrum != nil {
+				p.spectrumConsumer = p.spectrum.NewConsumer()
+			}
 
 			p.ctrl.Streamer = beep.Seq(p.resampleStreamer(p.curFormat.SampleRate), beep.Callback(doneHandle))
 			p.volume.Streamer = p.ctrl
@@ -433,6 +444,9 @@ func (p *beepPlayer) Close() {
 		close(p.close)
 		p.close = nil
 	}
+	if p.spectrum != nil {
+		p.spectrum.Close()
+	}
 	speaker.Clear()
 	speaker.Close()
 }
@@ -453,6 +467,7 @@ func (p *beepPlayer) reset() {
 		p.curStreamer = nil
 	}
 	p.cacheDownloaded = false
+	p.spectrumConsumer = nil
 	speaker.Clear()
 }
 
@@ -462,6 +477,18 @@ func (p *beepPlayer) streamer(samples [][2]float64) (n int, ok bool) {
 
 	pos := p.curStreamer.Position()
 	n, ok = p.curStreamer.Stream(samples)
+
+	// Spectrum: feed PCM samples to analyzer
+	if p.spectrumConsumer != nil && n > 0 {
+		samplesL := make([]float32, n)
+		samplesR := make([]float32, n)
+		for i := 0; i < n; i++ {
+			samplesL[i] = float32(samples[i][0])
+			samplesR[i] = float32(samples[i][1])
+		}
+		p.spectrumConsumer(float64(sampleRate), samplesL, samplesR)
+	}
+
 	err := p.curStreamer.Err()
 	if err == nil && (ok || p.cacheDownloaded) {
 		return
@@ -494,4 +521,18 @@ func (p *beepPlayer) resampleStreamer(old beep.SampleRate) beep.Streamer {
 		return beep.StreamerFunc(p.streamer)
 	}
 	return beep.Resample(resampleQuiality, old, sampleRate, beep.StreamerFunc(p.streamer))
+}
+
+func (p *beepPlayer) Spectrum() SpectrumFrame {
+	if p.spectrum == nil {
+		return SpectrumFrame{}
+	}
+	return p.spectrum.Spectrum()
+}
+
+func (p *beepPlayer) RawSamples() RawSampleFrame {
+	if p.spectrum == nil {
+		return RawSampleFrame{}
+	}
+	return p.spectrum.RawSamples()
 }

@@ -172,7 +172,8 @@ type Player interface {
 - **歌词**：LRC/YRC 格式，支持 smooth/wave/glow 渲染模式
 - **播放列表**：列表循环/顺序/单曲循环/随机/无限随机/智能心动模式
 - **远程控制**：MPRIS(linux)、Now Playing(macOS)、System Media(Windows)
-- **存储**：BoltDB，存储用户信息、播放状态、播放列表快照
+- **存储**：BoltDB，存储用户信息、播放状态、播放列表快照和桌面歌词窗口位置/显示器
+- **实时频谱**：仅 macOS `osx` 播放引擎支持；`MTAudioProcessingTap` 经 PureGo 获取 PCM，由 `internal/player/spectrum.go` 异步分析。PCM 更新频谱目标值，`github.com/charmbracelet/harmonica` 的临界阻尼弹簧以每帧推进，避免 PCM 回调间隙使动画停顿。频谱分析与 UI 刷新均使用 `[main].frameRate`。`[main.visualizer]` 支持 `enable`、`maxHeight`（默认 `0` 为不限制；正数限制频谱行数）及 `fullCharHalfBlock`、`fullCharFullBlock`、`emptyCharBlock` 字符配置（各取首个 Unicode 字符，默认分别为 `▌`、`█`、空格）。`SpectrumRenderer` 将相邻频段分组为由低至高的横向进度条（低频在底部），以三态字符显示：满单元、使用前景/背景双色渐变的半单元、无样式空白单元，并以半单元为粒度提供双倍横向幅度分辨率。未限制时频谱会占满歌词与歌曲信息之间的可用行，顶部及歌曲信息前各保留一行空白。
 
 ## 开发指南
 
@@ -198,6 +199,42 @@ type Player interface {
 
 1. 实现 `Update()` 和 `View()` 方法
 2. 在 `netease.go:Components()` 注册
+
+### 跨平台构建兼容性
+
+**修改 `Makefile` 或 `hack/` 目录下的构建脚本时，必须确保 Windows 系统兼容。**
+
+#### 原因
+go-musicfox 支持 macOS/Linux/Windows 三平台，构建脚本需要在不同环境下正确执行。
+
+#### 检查清单
+- [ ] 新增的 target 是否包含 Unix 特有命令（`which`、`cp`、`mkdir -p`、`chmod`、`tar`、`awk` 等）
+- [ ] 是否使用 `$(OS)` / `Windows_NT` 条件分支提供 Windows 替代逻辑
+- [ ] Shell 脚本（`.sh`）是否有对应的 PowerShell（`.ps1`）实现
+- [ ] 路径分隔符是否兼容（使用 `$(PACKAGE_ROOT)` 而非 `` `pwd` ``）
+- [ ] 重定向和设备文件是否有 Windows 替代（`nul` 对应 `/dev/null`，`where` 对应 `which`）
+
+#### Windows 兼容模式参考
+
+```makefile
+# 使用 OS 条件分支
+ifeq ($(OS),Windows_NT)
+    # Windows 逻辑
+else
+    # Unix 逻辑
+endif
+```
+
+| Unix 写法 | Windows 替代 |
+|-----------|-------------|
+| `which <cmd>` | `where <cmd>` |
+| `/dev/null` | `nul` |
+| `` `pwd` `` | `$(PACKAGE_ROOT)`（Make 变量） |
+| `<cmd> >/dev/null 2>&1` | `<cmd> >nul 2>&1` |
+| `<cmd> || { cmd2; }` | `<cmd> || ( cmd2 )` |
+| `hack/*.sh` | `hack/*.ps1`（PowerShell 实现） |
+
+**例外**：纯交叉编译/CI 内部工具（如 `hack/init_linux_env.sh`、`hack/init_windows_env.sh` 等 Docker 内部脚本），仅在 Linux Docker 容器中执行，无需适配 Windows。
 
 ## 文档维护准则
 
