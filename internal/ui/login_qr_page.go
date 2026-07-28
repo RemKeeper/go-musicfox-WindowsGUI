@@ -53,6 +53,12 @@ type QRLoginPage struct {
 	statusMsg  string
 	loading    *model.Loading
 	AfterLogin LoginCallback
+
+	backBtnHovered bool
+	backBtnRowY    int
+	backBtnStartX  int
+	backBtnEndX    int
+	mousePointer   string
 }
 
 func (p *QRLoginPage) IgnoreQuitKeyMsg(msg tea.KeyMsg) bool {
@@ -85,8 +91,35 @@ func (p *QRLoginPage) Type() model.PageType {
 	return QRLoginPageType
 }
 
-func (p *QRLoginPage) Update(msg tea.Msg, _ *model.App) (model.Page, tea.Cmd) {
+func (p *QRLoginPage) Update(msg tea.Msg, a *model.App) (model.Page, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMotionMsg:
+		mouse := msg.Mouse()
+		oldHovered := p.backBtnHovered
+		oldPointer := p.mousePointer
+		bcChanged, bcOver := pageBreadcrumbMotion(a, p.netease.MustMain(), mouse.X, mouse.Y)
+		p.backBtnHovered = mouse.Y == p.backBtnRowY && mouse.X >= p.backBtnStartX && mouse.X < p.backBtnEndX
+		p.mousePointer = "default"
+		if p.backBtnHovered || bcOver {
+			p.mousePointer = "pointer"
+		}
+		if p.backBtnHovered != oldHovered || p.mousePointer != oldPointer || bcChanged {
+			return p, tea.Sequence(p.netease.RerenderCmd(true), a.SetMousePointer(p.mousePointer))
+		}
+		return p, nil
+
+	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			if newPage := pageBreadcrumbClick(a, p.netease.MustMain(), mouse.X, mouse.Y); newPage != nil {
+				return newPage, p.netease.RerenderCmd(true)
+			}
+			if mouse.Y == p.backBtnRowY && mouse.X >= p.backBtnStartX && mouse.X < p.backBtnEndX {
+				return p.back()
+			}
+		}
+		return p, nil
+
 	case qrGeneratedMsg:
 		p.loading.Complete()
 		p.qrCodeView = msg.qrView
@@ -141,10 +174,7 @@ func (p *QRLoginPage) Update(msg tea.Msg, _ *model.App) (model.Page, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "b", "esc", "q":
-			if p.qrCodePath != "" {
-				_ = os.Remove(p.qrCodePath)
-			}
-			return p.from, p.netease.RerenderCmd(true)
+			return p.back()
 		case "v":
 			if p.qrCodePath != "" && !p.isExpired {
 				err := open.Start(p.qrCodePath)
@@ -158,13 +188,24 @@ func (p *QRLoginPage) Update(msg tea.Msg, _ *model.App) (model.Page, tea.Cmd) {
 	return p, nil
 }
 
+func (p *QRLoginPage) back() (model.Page, tea.Cmd) {
+	if p.qrCodePath != "" {
+		_ = os.Remove(p.qrCodePath)
+	}
+	return p.from, p.netease.RerenderCmd(true)
+}
+
 func (p *QRLoginPage) View(a *model.App) string {
 	var builder strings.Builder
 
 	var top int
 	mainPage := p.netease.MustMain()
-	builder.WriteString(mainPage.TitleView(a, &top))
-	builder.WriteString(mainPage.MenuTitleView(a, &top, &model.MenuItem{Title: "二维码登录"}))
+	builder.WriteString(pageTitleView(a, mainPage, &top))
+	topBefore := top
+	builder.WriteString(pageMenuTitleViewWithBack(a, mainPage, &top, &model.MenuItem{Title: model.T(MsgQRLoginPageTitle)}, p.backBtnHovered))
+	p.backBtnRowY = pageMenuTitleRow(a, mainPage, topBefore)
+	p.backBtnStartX = max(0, mainPage.MenuStartColumn()-pageBackButtonWidth)
+	p.backBtnEndX = p.backBtnStartX + pageBackButtonWidth
 	builder.WriteString("\n\n")
 	top += 2
 
