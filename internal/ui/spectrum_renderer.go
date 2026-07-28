@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/anhoder/foxful-cli/model"
+	foxfulStyle "github.com/anhoder/foxful-cli/style"
 	"github.com/anhoder/foxful-cli/util"
 	"github.com/lucasb-eyer/go-colorful"
 
@@ -228,7 +229,7 @@ func (*SpectrumRenderer) Update(tea.Msg, *model.App) {}
 
 func (r *SpectrumRenderer) View(a *model.App, main *model.Main) (view string, lines int) {
 	width := a.WindowWidth()
-	layout := r.layout(a.WindowHeight(), main.MenuBottomRow())
+	layout := r.layout(main.EffectiveWindowHeight(a), main.MenuBottomRow())
 	if layout.barLines == 0 || width <= 0 {
 		return "", 0
 	}
@@ -251,7 +252,7 @@ func (r *SpectrumRenderer) render(frame player.SpectrumFrame, width, height int)
 	isRawSample := style == SpectrumStyleOscilloscope || style == SpectrumStyleVectorscope
 
 	if !isLineOrDot && !isRawSample && !hasSignal(frame) {
-		blank := strings.Repeat(" ", width) + "\n"
+		blank := foxfulStyle.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", width)) + "\n"
 		return strings.Repeat(blank, height)
 	}
 
@@ -569,10 +570,21 @@ func (r *SpectrumRenderer) vertBrailleRamps(width, height int) [][]color.Color {
 		return nil
 	}
 	base := r.ramp(width)
-	black, _ := colorful.Hex("#000000")
+	vertBgHex := configs.GetSpectrumVerticalBg()
+	if vertBgHex == "" {
+		// Transparent background — skip vertical blend, return uniform rows
+		ramps := make([][]color.Color, height)
+		for row := range height {
+			rowRamp := make([]color.Color, len(base))
+			copy(rowRamp, base)
+			ramps[row] = rowRamp
+		}
+		return ramps
+	}
+	black, _ := colorful.Hex(vertBgHex)
 
 	ramps := make([][]color.Color, height)
-	for row := 0; row < height; row++ {
+	for row := range height {
 		// 0.0=top(dark) → 1.0=bottom(bright)
 		t := float64(row) / float64(height-1)
 		blend := 0.35 * (1.0 - t) // top blends 35% black, bottom 0%
@@ -591,10 +603,21 @@ func (r *SpectrumRenderer) vertBrailleRampsDim(width, height int, base []color.C
 	if height <= 1 {
 		return nil
 	}
-	black, _ := colorful.Hex("#000000")
+	vertBgHex := configs.GetSpectrumVerticalBg()
+	if vertBgHex == "" {
+		// Transparent background — skip vertical blend, return uniform rows
+		ramps := make([][]color.Color, height)
+		for row := range height {
+			rowRamp := make([]color.Color, len(base))
+			copy(rowRamp, base)
+			ramps[row] = rowRamp
+		}
+		return ramps
+	}
+	black, _ := colorful.Hex(vertBgHex)
 
 	ramps := make([][]color.Color, height)
-	for row := 0; row < height; row++ {
+	for row := range height {
 		t := float64(row) / float64(height-1)
 		blend := 0.35 * (1.0 - t)
 		rowRamp := make([]color.Color, len(base))
@@ -1269,6 +1292,7 @@ func hasSignal(frame player.SpectrumFrame) bool {
 }
 
 func (r *SpectrumRenderer) ramp(width int) []color.Color {
+	// TODO: Use theme visualizer color config via configs.AppColorConfig.ResolveVisualizerColors() when integrated
 	if r.progressLastWidth != float64(width) || len(r.progressRamp) == 0 {
 		start, end := model.GetProgressColor()
 		r.progressRamp = util.MakeRamp(start, end, float64(width*2))
@@ -1290,6 +1314,7 @@ func (r *SpectrumRenderer) rowRamps(width, height int, enabled bool) [][]color.C
 
 	baseRamp := r.ramp(width)
 
+	// TODO: Use theme visualizer color config via configs.AppColorConfig.ResolveVisualizerColors() when integrated
 	vertStart, vertEnd := util.GetRandomRgbColor(true)
 	cStart, _ := colorful.Hex(vertStart)
 	cEnd, _ := colorful.Hex(vertEnd)

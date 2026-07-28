@@ -1,0 +1,264 @@
+# Default - Classic Go-Musicfox Default Theme
+name = "Default"
+description = "Classic NetEase Music red theme — the original go-musicfox look"
+
+# ── Dark Variant ───────────────────────────────────────────
+[dark]
+primary = "#EA403F"
+secondary = "#808080"
+accent = "#0000FF"
+success = "#00FF00"
+warning = "#FFFF00"
+error = "#FF0000"
+info = "#00FFFF"
+muted = "#808080"
+hintKey = "#6E6E6E"
+background = "#1A1A1A"
+foreground = "#FFFFFF"
+border = "#333333"
+surface = "#242424"
+
+[dark.highlights]
+menuTitle = "BrightGreen"
+# 菜单项文字颜色
+# menuItem = ""
+# 选中项前景色
+# selectedItem = ""
+# 选中项背景色
+# selectedItemBg = ""
+# 鼠标悬停颜色
+# menuItemHover = ""
+# 选中+悬停颜色
+# selectedItemHover = ""
+# 页面标题颜色
+# title = ""
+# 输入提示颜色
+# prompt = ""
+# 返回按钮颜色
+# backButton = ""
+# 返回按钮悬停颜色
+# backButtonHover = ""
+# 副标题颜色
+# subtitle = ""
+# 进度条空槽颜色
+# progressEmpty = ""
+# 滚动条轨道颜色
+# scrollTrack = ""
+# 滚动条滑块颜色
+# scrollThumb = ""
+# 按钮常态颜色
+# button = ""
+# 按钮失焦颜色
+# buttonBlurred = ""
+
+[dark.popup]
+surface = "#383838"
+border = "#5C5C5C"
+
+# ── 通知组件配色 ─────────────────────────────────────────
+[dark.notification]
+# 通知背景色
+# surface = ""
+# 信息通知边框色
+# infoBorder = ""
+# 成功通知边框色
+# successBorder = ""
+# 警告通知边框色
+# warningBorder = ""
+# 错误通知边框色
+# errorBorder = ""
+
+# ── 状态栏配色 ───────────────────────────────────────────
+[dark.statusBar]
+# 状态栏基底背景色
+# bar = ""
+# 状态栏文字颜色
+# text = ""
+# 面包屑路径颜色
+# breadcrumb = ""
+# 面包屑分隔符颜色 ">"
+# breadcrumbSep = ""
+# 面包屑悬停颜色
+# breadcrumbHover = ""
+# 面包屑点击颜色
+# breadcrumbClick = ""
+# 时间显示颜色
+# time = ""
+# 标签块文字颜色
+# nugget = ""
+# 标签块背景色
+# nuggetLabel = ""
+
+# ── Markdown 渲染主题 ────────────────────────────────────
+# 支持 glamour 内置主题名（dark/light/dracula/tokyo-night/notion/pink）
+# 或自定义 JSON 主题文件路径
+[dark.markdown]
+dark = "dark"
+light = "light"
+
+[dark.app]
+# Lyric colors
+lyricActive = "#7EC8E3"
+lyricTransition = "#C9B1D4"
+lyricInactive = "#6B6B6B"
+lyricHighlight = "#E8E8E8"
+
+# Playbar colors (ANSI terminal colors — adapt to terminal theme)
+playbarMode = "BrightMagenta"
+playbarVolume = "BrightBlue"
+playbarPlaying = "BrightYellow"
+playbarPaused = "Yellow"
+playbarHeartLiked = "Red"
+playbarHeartUnliked = "White"
+playbarArtist = "BrightBlack"
+
+# Visualizer colors: "random" or hex
+visualizerColorStart = "random"
+visualizerColorEnd = "random"
+
+# 整个应用背景色（默认透明不设置）
+# background = ""
+# 右键菜单背景色
+# contextMenuBg = ""
+# 右键菜单边框色
+# contextMenuBorder = ""
+# 频谱纵向渐变色
+# spectrumVerticalBg = ""
+# 桌面歌词背景色
+# desktopLyricsBg = ""
+# 登录/认证状态颜色
+# loginError = ""
+# loginSuccess = ""
+# authStatus = ""
+# CLI 配置表颜色
+# configTableBorder = ""
+# configTableSelectedFg = ""
+# configTableSelectedBg = ""
+
+# ── Light Variant ──────────────────────────────────────────
+[light]
+primary = "#EA403F"
+secondary = "#808080"
+accent = "#0000FF"
+success = "#008000"
+warning = "#CC8800"
+error = "#CC0000"
+info = "#008080"
+muted = "#808080"
+hintKey = "#8E8E8E"
+background = "#FAFAFA"
+foreground = "#1A1A1A"
+border = "#CCCCCC"
+surface = "#E8E8E8"
+
+[light.highlights]
+menuTitle = "BrightGreen"
+# 菜单项文字颜色
+# menuItem = ""
+# 选中项前景色
+# selectedItem = ""
+# 选中项背景色
+# selectedItemBg = ""
+# 鼠标悬停颜色
+# menuItemHover = ""
+# 选中+悬停颜色
+# selectedItemHover = ""
+# 页面标题颜色
+# title = ""
+# 输入提示颜色
+# prompt = ""
+# 返回按钮颜色
+# backButton = ""
+# 返回按钮悬停颜色
+# backButtonHover = ""
+# 副标题颜色
+# subtitle = ""
+# 进度条空槽颜色
+# progressEmpty = ""
+# 滚动条轨道颜色
+# scrollTrack = ""
+# 滚动条滑块颜色
+# scrollThumb = ""
+# 按钮常态颜色
+# button = ""
+# 按钮失焦颜色
+# buttonBlurred = ""
+
+[light.popup]
+surface = "#E8E8E8"
+border = "#A8A8A8"
+
+# ── 通知组件配色 ─────────────────────────────────────────
+[light.notification]
+# 通知背景色
+# surface = ""
+# 信息通知边框色
+# infoBorder = ""
+# 成功通知边框色
+# successBorder = ""
+# 警告通知边框色
+# warningBorder = ""
+# 错误通知边框色
+# errorBorder = ""
+
+# ── 状态栏配色 ───────────────────────────────────────────
+[light.statusBar]
+# 状态栏基底背景色
+# bar = ""
+# 状态栏文字颜色
+# text = ""
+# 面包屑路径颜色
+# breadcrumb = ""
+# 面包屑分隔符颜色 ">"
+# breadcrumbSep = ""
+# 面包屑悬停颜色
+# breadcrumbHover = ""
+# 面包屑点击颜色
+# breadcrumbClick = ""
+# 时间显示颜色
+# time = ""
+# 标签块文字颜色
+# nugget = ""
+# 标签块背景色
+# nuggetLabel = ""
+
+# ── Markdown 渲染主题 ────────────────────────────────────
+# 支持 glamour 内置主题名（dark/light/dracula/tokyo-night/notion/pink）
+# 或自定义 JSON 主题文件路径
+[light.markdown]
+dark = "dark"
+light = "light"
+
+[light.app]
+lyricActive = "#3A8FB7"
+lyricTransition = "#8B5E9E"
+lyricInactive = "#808080"
+lyricHighlight = "#E8E8E8"
+playbarMode = "BrightMagenta"
+playbarVolume = "BrightBlue"
+playbarPlaying = "BrightYellow"
+playbarPaused = "Yellow"
+playbarHeartLiked = "Red"
+playbarHeartUnliked = "White"
+playbarArtist = "BrightBlack"
+visualizerColorStart = "random"
+visualizerColorEnd = "random"
+
+# 整个应用背景色（默认透明不设置）
+# background = ""
+# 右键菜单背景色
+# contextMenuBg = ""
+# 右键菜单边框色
+# contextMenuBorder = ""
+# 频谱纵向渐变色
+# spectrumVerticalBg = ""
+# 桌面歌词背景色
+# desktopLyricsBg = ""
+# 登录/认证状态颜色
+# loginError = ""
+# loginSuccess = ""
+# authStatus = ""
+# CLI 配置表颜色
+# configTableBorder = ""
+# configTableSelectedFg = ""
+# configTableSelectedBg = ""

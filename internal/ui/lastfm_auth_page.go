@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/anhoder/foxful-cli/model"
+	"github.com/anhoder/foxful-cli/style"
 	"github.com/anhoder/foxful-cli/util"
 	"github.com/go-musicfox/go-musicfox/internal/configs"
 	"github.com/go-musicfox/go-musicfox/internal/lastfm"
@@ -50,7 +51,7 @@ func NewLastfmAuthPage(netease *Netease) *LastfmAuthPage {
 	accountInput := textinput.New()
 	accountInput.Placeholder = " 用户名或邮箱"
 	accountInput.Focus()
-	accountInput.Prompt = model.GetFocusedPrompt()
+	accountInput.Prompt = util.GetFocusedPrompt()
 	s := textinput.DefaultStyles(true)
 	s.Focused.Text = util.GetPrimaryFontStyle()
 	accountInput.SetStyles(s)
@@ -68,14 +69,14 @@ func NewLastfmAuthPage(netease *Netease) *LastfmAuthPage {
 		menuTitle:     &model.MenuItem{Title: "Lastfm用户登录/授权"},
 		accountInput:  accountInput,
 		passwordInput: passwordInput,
-		submitButton:  model.GetBlurredSubmitButton(),
+		submitButton:  util.GetBlurredSubmitButton(),
 
 		submitIndex:  2,
 		qrAuthIndex:  3,
 		browserIndex: 4,
 	}
-	page.qrAuthButton = model.GetBlurredButton(page.qrButtonTextByStep())
-	page.browserButton = model.GetBlurredButton(page.browserButtonTextByStep())
+	page.qrAuthButton = util.GetBlurredButton(page.qrButtonTextByStep())
+	page.browserButton = util.GetBlurredButton(page.browserButtonTextByStep())
 
 	return page
 }
@@ -148,7 +149,7 @@ func (l *LastfmAuthPage) Update(msg tea.Msg, _ *model.App) (model.Page, tea.Cmd)
 			if i != l.index {
 				// Remove focused state
 				inputs[i].Blur()
-				inputs[i].Prompt = model.GetBlurredPrompt()
+				inputs[i].Prompt = util.GetBlurredPrompt()
 				// inputs[i].TextStyle = lipgloss.NewStyle()
 				s := textinput.DefaultStyles(true)
 				s.Focused.Text = lipgloss.NewStyle()
@@ -157,7 +158,7 @@ func (l *LastfmAuthPage) Update(msg tea.Msg, _ *model.App) (model.Page, tea.Cmd)
 			}
 			// Set focused state
 			inputs[i].Focus()
-			inputs[i].Prompt = model.GetFocusedPrompt()
+			inputs[i].Prompt = util.GetFocusedPrompt()
 			s := textinput.DefaultStyles(true)
 			s.Focused.Text = util.GetPrimaryFontStyle()
 			inputs[i].SetStyles(s)
@@ -170,23 +171,23 @@ func (l *LastfmAuthPage) Update(msg tea.Msg, _ *model.App) (model.Page, tea.Cmd)
 
 		if l.index == l.submitIndex {
 			l.tips = util.SetFgStyle("使用账号密码登录并授权", lipgloss.BrightBlue)
-			l.submitButton = model.GetFocusedSubmitButton()
+			l.submitButton = util.GetFocusedSubmitButton()
 		} else {
-			l.submitButton = model.GetBlurredSubmitButton()
+			l.submitButton = util.GetBlurredSubmitButton()
 		}
 
 		if l.index == l.qrAuthIndex {
 			l.tips = util.SetFgStyle("请使用可扫码设备扫码并在浏览器授权", lipgloss.BrightBlue)
-			l.qrAuthButton = model.GetFocusedButton(l.qrButtonTextByStep())
+			l.qrAuthButton = util.GetFocusedButton(l.qrButtonTextByStep())
 		} else {
-			l.qrAuthButton = model.GetBlurredButton(l.qrButtonTextByStep())
+			l.qrAuthButton = util.GetBlurredButton(l.qrButtonTextByStep())
 		}
 
 		if l.index == l.browserIndex {
 			l.tips = util.SetFgStyle("在默认浏览器中打开链接并授权", lipgloss.BrightBlue)
-			l.browserButton = model.GetFocusedButton(l.browserButtonTextByStep())
+			l.browserButton = util.GetFocusedButton(l.browserButtonTextByStep())
 		} else {
-			l.browserButton = model.GetBlurredButton(l.browserButtonTextByStep())
+			l.browserButton = util.GetBlurredButton(l.browserButtonTextByStep())
 		}
 
 		return l, nil
@@ -205,13 +206,13 @@ func (l *LastfmAuthPage) View(a *model.App) string {
 
 	// title
 	if configs.AppConfig.Theme.ShowTitle {
-		builder.WriteString(mainPage.TitleView(a, &top))
+		builder.WriteString(pageTitleView(a, mainPage, &top))
 	} else {
 		top++
 	}
 
 	// menu title
-	builder.WriteString(mainPage.MenuTitleView(a, &top, l.menuTitle))
+	builder.WriteString(pageMenuTitleView(a, mainPage, &top, l.menuTitle))
 	builder.WriteString("\n\n\n")
 	top += 2
 
@@ -222,7 +223,7 @@ func (l *LastfmAuthPage) View(a *model.App) string {
 
 	for i, input := range inputs {
 		if mainPage.MenuStartColumn() > 0 {
-			builder.WriteString(strings.Repeat(" ", mainPage.MenuStartColumn()))
+			builder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", mainPage.MenuStartColumn())))
 		}
 
 		builder.WriteString(input.View())
@@ -234,7 +235,7 @@ func (l *LastfmAuthPage) View(a *model.App) string {
 			valueLen = runewidth.StringWidth(input.Value())
 		}
 		if spaceLen := l.netease.WindowWidth() - mainPage.MenuStartColumn() - valueLen - 3; spaceLen > 0 {
-			builder.WriteString(strings.Repeat(" ", spaceLen))
+			builder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", spaceLen)))
 		}
 
 		top++
@@ -248,13 +249,13 @@ func (l *LastfmAuthPage) View(a *model.App) string {
 	builder.WriteString("\n\n")
 	top++
 	if mainPage.MenuStartColumn() > 0 {
-		builder.WriteString(strings.Repeat(" ", mainPage.MenuStartColumn()))
+		builder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", mainPage.MenuStartColumn())))
 	}
 	builder.WriteString(l.tips)
 	builder.WriteString("\n\n")
 	top++
 	if mainPage.MenuStartColumn() > 0 {
-		builder.WriteString(strings.Repeat(" ", mainPage.MenuStartColumn()))
+		builder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", mainPage.MenuStartColumn())))
 	}
 	builder.WriteString(l.submitButton)
 
@@ -267,7 +268,7 @@ func (l *LastfmAuthPage) View(a *model.App) string {
 
 	spaceLen := a.WindowWidth() - mainPage.MenuStartColumn() - runewidth.StringWidth(types.SubmitText) - runewidth.StringWidth(l.qrButtonTextByStep()) - runewidth.StringWidth(l.browserButtonTextByStep()) - len(btnBlank)*2
 	if spaceLen > 0 {
-		builder.WriteString(strings.Repeat(" ", spaceLen))
+		builder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", spaceLen)))
 	}
 	builder.WriteString("\n")
 
@@ -425,7 +426,7 @@ func (l *LastfmAuthPage) authByBrower() (model.Page, tea.Cmd) {
 		}
 		l.tips = util.SetFgStyle("请在浏览器中授权后继续，若未正确跳转，请更换认证方式", lipgloss.BrightBlue)
 		l.browserAuthStep++
-		l.browserButton = model.GetFocusedButton(l.browserButtonTextByStep())
+		l.browserButton = util.GetFocusedButton(l.browserButtonTextByStep())
 		return l, nil
 	}
 

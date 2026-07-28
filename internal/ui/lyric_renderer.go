@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/anhoder/foxful-cli/model"
+	"github.com/anhoder/foxful-cli/style"
 	"github.com/anhoder/foxful-cli/util"
 	"github.com/mattn/go-runewidth"
 
@@ -20,17 +21,17 @@ var ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 // lyricCacheKey holds the state that determines whether the rendered
 // output has changed. Used to skip expensive recomputation in View().
 type lyricCacheKey struct {
-	currentIndex   int
-	yrcLineIdx     int
-	isRunning      bool
-	yrcEnabled     bool
-	showTranslation bool
+	currentIndex         int
+	yrcLineIdx           int
+	isRunning            bool
+	yrcEnabled           bool
+	showTranslation      bool
 	currentTimeHundredMs int64 // currentTimeMs / 100, ~100ms granularity
-	windowWidth    int
-	windowHeight   int
-	menuBottomRow  int
-	specLines      int
-	isCentered     bool
+	windowWidth          int
+	windowHeight         int
+	menuBottomRow        int
+	specLines            int
+	isCentered           bool
 }
 
 // LyricRenderer is a dedicated UI component for rendering lyrics.
@@ -115,7 +116,7 @@ func (r *LyricRenderer) buildYRCLineString(line lyric.YRCLine, currentTimeMs int
 			text.WriteString(line.TranslatedLyric)
 			text.WriteString("]")
 		}
-		return util.SetFgStyle(text.String(), LyricInactiveColor)
+		return util.SetFgStyle(text.String(), lyricInactiveColor())
 	}
 
 	adjustedTimeMs := currentTimeMs + int64(configs.AppConfig.Main.FrameRate.DurationMs()/2)
@@ -142,7 +143,7 @@ func (r *LyricRenderer) buildYRCLineString(line lyric.YRCLine, currentTimeMs int
 	}
 
 	if showTranslation && line.TranslatedLyric != "" {
-		result += " " + util.SetFgStyle("["+line.TranslatedLyric+"]", LyricInactiveColor)
+		result += " " + util.SetFgStyle("["+line.TranslatedLyric+"]", lyricInactiveColor())
 	}
 	return result
 }
@@ -178,14 +179,14 @@ func stripAnsiCodes(s string) string {
 func (r *LyricRenderer) Update(msg tea.Msg, a *model.App) {
 	main := r.netease.MustMain()
 	specLines := r.netease.SpectrumLines(main)
-	spaceHeight := r.netease.WindowHeight() - FixedTopBottomRows - main.MenuBottomRow() - specLines
+	spaceHeight := r.netease.EffectiveWindowHeight() - FixedTopBottomRows - main.MenuBottomRow() - specLines
 
 	if !r.isVisible || spaceHeight < MinSpaceHeight {
 		r.lyricLines = 0
 		return
 	}
 
-	endRow := r.netease.WindowHeight() - EndRowMargin
+	endRow := r.netease.EffectiveWindowHeight() - EndRowMargin
 	if spaceHeight >= FullLyricLines {
 		r.lyricLines = FullLyricLines
 	} else {
@@ -197,12 +198,22 @@ func (r *LyricRenderer) Update(msg tea.Msg, a *model.App) {
 // View renders the lyric component.
 func (r *LyricRenderer) View(a *model.App, main *model.Main) (view string, lines int) {
 	specLines := r.netease.SpectrumLines(main)
-	endRow := r.netease.WindowHeight() - EndRowMargin
+	endRow := r.netease.EffectiveWindowHeight() - EndRowMargin
 
 	if r.lyricLines == 0 {
 		fillingLines := endRow - main.MenuBottomRow() - specLines
-		if fillingLines > 0 {
-			return strings.Repeat("\n", fillingLines), fillingLines
+		if fillingLines > 1 {
+			// JoinVertical inserts a separator before this component. The lyric
+			// placeholder still needs fillingLines+1 visual rows so the progress
+			// bar reaches the final content row.
+			return strings.Repeat("\n", fillingLines), fillingLines + 1
+		} else if fillingLines == 1 {
+			if main.StatusBar() != nil && main.StatusBarPosition() == model.StatusBarBottom {
+				return "", 1
+			}
+			// Main skips empty component views. Without a bottom status bar, retain
+			// this row so its padding does not move below the progress component.
+			return " ", 1
 		}
 		return "", 0
 	}
@@ -219,17 +230,17 @@ func (r *LyricRenderer) View(a *model.App, main *model.Main) (view string, lines
 	// pixel-perfect timing — per-frame precision is wasteful.
 	state := r.lyricService.State()
 	key := lyricCacheKey{
-		currentIndex:        state.CurrentIndex,
-		yrcLineIdx:          state.YRCLineIndex,
-		isRunning:           state.IsRunning,
-		yrcEnabled:          state.YRCEnabled,
-		showTranslation:     state.ShowTranslation,
+		currentIndex:         state.CurrentIndex,
+		yrcLineIdx:           state.YRCLineIndex,
+		isRunning:            state.IsRunning,
+		yrcEnabled:           state.YRCEnabled,
+		showTranslation:      state.ShowTranslation,
 		currentTimeHundredMs: currentTimeMs / 100,
-		windowWidth:         r.netease.WindowWidth(),
-		windowHeight:        r.netease.WindowHeight(),
-		menuBottomRow:       main.MenuBottomRow(),
-		specLines:           specLines,
-		isCentered:          main.CenterEverything(),
+		windowWidth:          r.netease.WindowWidth(),
+		windowHeight:         r.netease.EffectiveWindowHeight(),
+		menuBottomRow:        main.MenuBottomRow(),
+		specLines:            specLines,
+		isCentered:           main.CenterEverything(),
 	}
 	if key == r.cachedKey {
 		return r.cachedView, r.cachedLines
@@ -348,7 +359,7 @@ func (r *LyricRenderer) renderLRCWithMode(state lyric.State, centerIndex int, cu
 
 	// Helper function to render plain gray text (for non-current lines)
 	renderPlainGray := func(content string) string {
-		return util.SetFgStyle(content, LyricInactiveColor)
+		return util.SetFgStyle(content, lyricInactiveColor())
 	}
 
 	// Fill current line (with color gradient effect)
@@ -422,6 +433,13 @@ func (r *LyricRenderer) buildLyricsCentered(_ *model.Main, lyricBuilder *strings
 
 		if !hasAnsi {
 			line = runewidth.Truncate(line, lyricsMaxLength, "")
+		} else {
+			// ANSI (YRC) lines: if visible width exceeds limit, strip and truncate
+			visibleContent := stripAnsiCodes(line)
+			if runewidth.StringWidth(visibleContent) > lyricsMaxLength {
+				line = runewidth.Truncate(visibleContent, lyricsMaxLength, "")
+				hasAnsi = false
+			}
 		}
 
 		visibleLine := line
@@ -431,17 +449,17 @@ func (r *LyricRenderer) buildLyricsCentered(_ *model.Main, lyricBuilder *strings
 		lineLength := runewidth.StringWidth(visibleLine)
 
 		paddingLeft := max(0, lyricStartCol+(availableWidth-lineLength)/2)
-		lyricBuilder.WriteString(strings.Repeat(" ", paddingLeft))
+		lyricBuilder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", paddingLeft)))
 
 		if !hasAnsi {
 			if i == highlightLine {
-				line = util.SetFgStyle(line, LyricActiveColor)
+				line = util.SetFgStyle(line, lyricActiveColor())
 			} else {
-				line = util.SetFgStyle(line, LyricInactiveColor)
+				line = util.SetFgStyle(line, lyricInactiveColor())
 			}
 		}
 		lyricBuilder.WriteString(line)
-		lyricBuilder.WriteString(strings.Repeat(" ", max(0, windowWidth-paddingLeft-lineLength)))
+		lyricBuilder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", max(0, windowWidth-paddingLeft-lineLength))))
 		lyricBuilder.WriteString("\n")
 	}
 }
@@ -469,7 +487,7 @@ func (r *LyricRenderer) buildLyricsTraditional(main *model.Main, lyricBuilder *s
 
 	renderLine := func(idx int, isHighlight bool) {
 		if startCol > 0 {
-			lyricBuilder.WriteString(strings.Repeat(" ", startCol))
+			lyricBuilder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", startCol)))
 		}
 
 		line := r.lyrics[idx]
@@ -479,7 +497,14 @@ func (r *LyricRenderer) buildLyricsTraditional(main *model.Main, lyricBuilder *s
 		if isHighlight && !hasAnsi {
 			lyricLine = r.lyricNowScrollBar.Tick(maxLen, line)
 		} else if hasAnsi {
-			lyricLine = line
+			// ANSI (YRC) lines: if visible width exceeds limit, strip and truncate
+			visibleContent := stripAnsiCodes(line)
+			if runewidth.StringWidth(visibleContent) > maxLen {
+				hasAnsi = false
+				lyricLine = runewidth.Truncate(runewidth.FillRight(visibleContent, maxLen), maxLen, "")
+			} else {
+				lyricLine = line
+			}
 		} else {
 			lyricLine = runewidth.Truncate(runewidth.FillRight(line, maxLen), maxLen, "")
 		}
@@ -487,9 +512,9 @@ func (r *LyricRenderer) buildLyricsTraditional(main *model.Main, lyricBuilder *s
 		lineHasAnsi := hasAnsi || strings.Contains(lyricLine, "\033[")
 		if !lineHasAnsi {
 			if isHighlight {
-				lyricLine = util.SetFgStyle(lyricLine, LyricActiveColor)
+				lyricLine = util.SetFgStyle(lyricLine, lyricActiveColor())
 			} else {
-				lyricLine = util.SetFgStyle(lyricLine, LyricInactiveColor)
+				lyricLine = util.SetFgStyle(lyricLine, lyricInactiveColor())
 			}
 		}
 
@@ -502,7 +527,7 @@ func (r *LyricRenderer) buildLyricsTraditional(main *model.Main, lyricBuilder *s
 		lineLen := runewidth.StringWidth(visibleLine)
 		remainingWidth := r.netease.WindowWidth() - startCol - lineLen
 		if remainingWidth > 0 {
-			lyricBuilder.WriteString(strings.Repeat(" ", remainingWidth))
+			lyricBuilder.WriteString(style.CurrentStyleSet().AppBackground.Render(strings.Repeat(" ", remainingWidth)))
 		}
 		lyricBuilder.WriteString("\n")
 	}

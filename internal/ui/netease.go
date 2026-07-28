@@ -6,14 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/anhoder/foxful-cli/model"
+	"github.com/anhoder/foxful-cli/style"
 	"github.com/buger/jsonparser"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/go-musicfox/netease-music/service"
 	"github.com/go-musicfox/netease-music/util"
 	neteaseutil "github.com/go-musicfox/netease-music/util"
@@ -33,6 +34,7 @@ import (
 	"github.com/go-musicfox/go-musicfox/utils/app"
 	apputils "github.com/go-musicfox/go-musicfox/utils/app"
 	"github.com/go-musicfox/go-musicfox/utils/errorx"
+	"github.com/go-musicfox/go-musicfox/utils/filex"
 	"github.com/go-musicfox/go-musicfox/utils/likelist"
 	"github.com/go-musicfox/go-musicfox/utils/notify"
 	"github.com/go-musicfox/go-musicfox/utils/slogx"
@@ -51,16 +53,22 @@ type Netease struct {
 
 	lyricService *lyric.Service
 
-	lyricRenderer        *LyricRenderer
-	songInfoRenderer     *SongInfoRenderer
-	progressRenderer     *ProgressRenderer
-	coverRenderer        *CoverRenderer
-	spectrumRenderer     *SpectrumRenderer
-	spectrogramRenderer  *SpectrogramRenderer
+	lyricRenderer       *LyricRenderer
+	songInfoRenderer    *SongInfoRenderer
+	progressRenderer    *ProgressRenderer
+	coverRenderer       *CoverRenderer
+	spectrumRenderer    *SpectrumRenderer
+	spectrogramRenderer *SpectrogramRenderer
 
 	player       *Player
 	shareSvc     *composer.ShareService
 	trackManager *track.Manager
+
+	playbarHoveredElement PlaybarElement
+
+	// Theme switch notification: update in-place when visible, recreate when expired.
+	themeNotifID    model.NotificationID
+	themeNotifTimer *time.Timer
 
 	desktopLyrics desktop_lyrics.Controller
 }
@@ -128,7 +136,7 @@ func (n *Netease) Components() []model.Component {
 }
 
 func (n *Netease) SpectrumLines(main *model.Main) int {
-	windowHeight := n.WindowHeight()
+	windowHeight := n.EffectiveWindowHeight()
 	menuBottomRow := main.MenuBottomRow()
 	if n.spectrumRenderer != nil && n.spectrumRenderer.IsEnabled() {
 		return n.spectrumRenderer.LineCount(windowHeight, menuBottomRow)
@@ -139,21 +147,33 @@ func (n *Netease) SpectrumLines(main *model.Main) int {
 	return 0
 }
 
+// EffectiveWindowHeight returns the available content height, excluding the
+// status bar if present. Components should use this instead of WindowHeight()
+// for bottom-anchored layout to avoid overlapping the status bar.
+func (n *Netease) EffectiveWindowHeight() int {
+	return n.MustMain().EffectiveWindowHeight(n.App)
+}
+
 // ToLoginPage 需要登录的处理
 func (n *Netease) ToLoginPage(callback func() model.Page) (model.Page, tea.Cmd) {
 	n.login.AfterLogin = callback
+	n.coverRenderer.ClearDisplayed()
 	return n.login, tickLogin(time.Nanosecond)
 }
 
 // ToSearchPage 搜索
 func (n *Netease) ToSearchPage(searchType SearchType) (model.Page, tea.Cmd) {
 	n.search.searchType = searchType
+	n.coverRenderer.ClearDisplayed()
 	return n.search, tickSearch(time.Nanosecond)
 }
 
 func (n *Netease) InitHook(_ *model.App) {
 	config := configs.AppConfig
 	dataDir := app.DataDir()
+
+	// 注册 TUI 内 toast 回调（此时 App.Run 已启动，program 就绪）
+	n.registerToastHook()
 
 	// 全局文件Jar
 	cookiePath := filepath.Join(dataDir, "cookie")
@@ -262,6 +282,12 @@ func (n *Netease) InitHook(_ *model.App) {
 			}
 		}
 
+		cloudUserID := int64(0)
+		if n.user != nil {
+			cloudUserID = n.user.UserId
+		}
+		n.trackManager.SetCloudUserID(cloudUserID)
+
 		// 刷新界面用户名
 		n.MustMain().RefreshMenuTitle()
 
@@ -361,12 +387,12 @@ func (n *Netease) InitHook(_ *model.App) {
 				notifyMsg += yunbeiResult
 
 				_ = table.SetByKVModel(storage.LastSignIn{}, today)
-
 				notify.Notify(notify.NotifyContent{
 					Title:   "自动签到完成",
 					Text:    notifyMsg,
 					Url:     types.AppGithubUrl,
 					GroupId: types.GroupID,
+					Level:   notify.ToastSuccess,
 				})
 			}
 		}
@@ -374,19 +400,7 @@ func (n *Netease) InitHook(_ *model.App) {
 		// 检查更新
 		if config.Startup.CheckUpdate {
 			if ok, newVersion := version.CheckUpdate(); ok {
-				if runtime.GOOS == "windows" {
-					n.MustMain().EnterMenu(
-						NewCheckUpdateMenu(newBaseMenu(n)),
-						&model.MenuItem{Title: "新版本: " + newVersion, Subtitle: "当前版本: " + types.AppVersion},
-					)
-					n.Rerender(false)
-				}
-
-				notify.Notify(notify.NotifyContent{
-					Title: "发现新版本: " + newVersion,
-					Text:  "去看看呗",
-					Url:   types.AppLatestReleases,
-				})
+				notify.Notify(newVersionNotifyContent(newVersion))
 			}
 		}
 
@@ -398,6 +412,39 @@ func (n *Netease) InitHook(_ *model.App) {
 				notify.Notify(notify.NotifyContent{
 					Title: "自动播放失败",
 					Text:  err.Error(),
+					Level: notify.ToastError,
+				})
+			}
+		}
+
+		// changelog: 首次启动新版本或 debug 模式 → 弹更新日志
+		// 使用 AfterFunc 延迟弹窗，确保 startup 页完成、主页面已进入
+		{
+			slog.Debug("changelog: entering check",
+				"debug", configs.AppConfig.Main.Debug,
+				"appVersion", types.AppVersion,
+				"app", n.App != nil,
+			)
+			jsonStr, _ := table.GetByKVModel(storage.ChangelogSeen{})
+			var seen storage.ChangelogSeen
+			if len(jsonStr) > 0 {
+				_ = json.Unmarshal(jsonStr, &seen)
+			}
+			shouldShow := configs.AppConfig.Main.Debug || seen.Version == "" || version.CompareVersion(types.AppVersion, seen.Version, false)
+			slog.Debug("changelog: shouldShow",
+				"shouldShow", shouldShow,
+				"debug", configs.AppConfig.Main.Debug,
+				"seenVersion", seen.Version,
+			)
+			if shouldShow {
+				if !configs.AppConfig.Main.Debug {
+					_ = table.SetByKVModel(storage.ChangelogSeen{Version: types.AppVersion}, storage.ChangelogSeen{})
+				}
+				app := n.App
+				slog.Debug("changelog: scheduling AfterFunc", "hasApp", app != nil)
+				time.AfterFunc(max(configs.AppConfig.Startup.ToModel().LoadingDuration, time.Second)-750*time.Millisecond, func() {
+					slog.Debug("changelog: AfterFunc triggered, showing popup")
+					showChangelogPopup(app)
 				})
 			}
 		}
@@ -564,6 +611,7 @@ func (n *Netease) LoginCallback() error {
 		return errors.WithMessagef(err, "parse user err, code: %f, resp: %s", code, string(resp))
 	}
 	n.user = &user
+	n.trackManager.SetCloudUserID(user.UserId)
 
 	// 获取我喜欢的歌单
 	userPlaylists := service.UserPlaylistService{
@@ -592,4 +640,82 @@ func (n *Netease) LoginCallback() error {
 	go likelist.RefreshLikeList(user.UserId)
 
 	return nil
+}
+
+// showChangelogPopup reads the embedded CHANGELOG.md and displays it as a markdown popup.
+func showChangelogPopup(app *model.App) {
+	data, err := filex.ReadFileFromEmbed("embed/changelog.md")
+	if err != nil {
+		slog.Error("changelog load failure", slogx.Error(err))
+		return
+	}
+
+	popupWidth := min(max(app.WindowWidth()*70/100, 40), 120)
+
+	maxHeight := max(app.WindowHeight()*80/100, 10)
+
+	popup, err := model.NewMarkdownPopup(model.MarkdownPopupSpec{
+		Title:           "更新日志",
+		MarkdownContent: string(data),
+		MaxWidth:        popupWidth,
+		MaxHeight:       maxHeight,
+		Anchor:          model.AnchorCenter,
+		DisableResize:   false,
+		CloseKeys:       []string{"esc", "q"},
+	})
+	if err != nil {
+		slog.Error("changelog popup creation failure", slogx.Error(err))
+		return
+	}
+	app.ShowPopup(popup)
+	// Trigger a rerender so the popup appears immediately without waiting for a keypress
+	app.Rerender(true)
+}
+
+// Update intercepts system background-change messages to rebuild the StyleSet
+// from go-musicfox's ThemeRegistry with the correct dark/light variant.
+// Foxful-cli's built-in onBackgroundChanged handles SetDarkBackground and popup
+// cache invalidation; we override the StyleSet afterwards to use our theme files.
+func (n *Netease) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case tea.BackgroundColorMsg, uv.LightColorSchemeEvent, uv.DarkColorSchemeEvent:
+		// Let foxful-cli process the message first (SetDarkBackground, popup cache, etc.)
+		_, cmd := n.App.Update(msg)
+		// Rebuild StyleSet from our ThemeRegistry with correct dark/light variant
+		isDark := style.HasDarkBackground()
+		ss := configs.CurrentThemeRegistry().CurrentStyleSet(isDark)
+		if ss != nil {
+			style.SetStyleSet(*ss)
+			n.App.SetStyleSet(*ss)
+		}
+		n.notifyThemeSwitch(n.App, "外观模式已切换", configs.CurrentThemeRegistry().CurrentName(isDark))
+		return n, tea.Sequence(cmd, n.App.RerenderCmd(true))
+	default:
+		_, cmd := n.App.Update(msg)
+		return n, cmd
+	}
+}
+
+// notifyThemeSwitch shows or updates a theme switch notification.
+// If a previous notification is still visible, updates it in place.
+// If it has expired, creates a new one.
+func (n *Netease) notifyThemeSwitch(app *model.App, title, name string) {
+	const timeout = 4 * time.Second
+	spec := model.NotificationSpec{
+		Level:   model.NotificationInfo,
+		Title:   title,
+		Message: name,
+		Timeout: timeout,
+	}
+	if n.themeNotifID == 0 {
+		n.themeNotifID = app.Notify(spec)
+	} else {
+		app.UpdateNotification(n.themeNotifID, spec)
+	}
+	if n.themeNotifTimer != nil {
+		n.themeNotifTimer.Stop()
+	}
+	n.themeNotifTimer = time.AfterFunc(timeout, func() {
+		n.themeNotifID = 0
+	})
 }
