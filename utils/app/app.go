@@ -106,7 +106,7 @@ func SetupPureRoot(rootDir string) {
 	// runtimeDir 可能尚未初始化，强制重置
 	paths.runtimeDir = paths.cacheDir
 
-	mustCreateDirectory(absRoot, paths.dataDir, paths.logDir)
+	mustCreateDirectory(absRoot, paths.dataDir, paths.cacheDir, paths.logDir)
 }
 
 func initPathsWithConfig() {

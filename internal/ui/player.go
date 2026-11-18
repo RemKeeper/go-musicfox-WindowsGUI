@@ -91,6 +91,13 @@ type Player struct {
 
 	renderTicker *tickerByPlayer // renderTicker 用于渲染
 
+	// curQuality 是当前歌曲实际拿到的音质标签（如「无损」「HQ」）。
+	// 由 getPlayInfo 在解析音源后写入，状态栏读取它显示真实音质。
+	qualityMu  sync.RWMutex
+	curQuality string
+	// curFileSize 是当前音源文件大小（字节），0 表示未知。
+	curFileSize int64
+
 	// mprisPosThrottle 限制 MPRIS Position 属性更新频率：每个时间 tick 都
 	// 广播会以 UI 帧率灌满 DBus 会话总线（60fps 时 60 次/秒）。
 	mprisPosThrottle mprisPositionThrottle
@@ -268,7 +275,9 @@ func (p *Player) PlaySong(song structs.Song, direction PlayDirection) {
 
 	p.LocatePlayingSong()
 	p.Pause()
-	url, musicType, err := p.getPlayInfo(song)
+	url, musicType, quality, fileSize, err := p.getPlayInfo(song)
+	// 记录实际音质与文件大小，供状态栏显示。
+	p.setCurQuality(quality, fileSize)
 
 	var skip bool
 	logger := slog.With(slog.String("url", url), slog.String("type", musicType), slog.Any("song", song))
@@ -535,18 +544,47 @@ func (p *Player) Close() error {
 	return nil
 }
 
-func (p *Player) getPlayInfo(song structs.Song) (string, string, error) {
+func (p *Player) getPlayInfo(song structs.Song) (url, musicType, quality string, size int64, err error) {
 	source, err := p.netease.trackManager.ResolvePlayableSource(context.Background(), song)
 	if err != nil || source.Info == nil {
-		return "", "", err
+		return "", "", "", 0, err
 	}
-	url := source.Info.URL
-	musicType := source.Info.MusicType
-	return url, musicType, err
+	return source.Info.URL, source.Info.MusicType, source.Info.Quality, source.Info.Size, nil
+}
+
+// CurQuality 返回当前播放歌曲实际拿到的音质标签。
+//
+// 返回空串表示尚未解析出音源（未播放或解析失败），
+// 此时状态栏应回退显示配置里的期望音质。
+func (p *Player) CurQuality() string {
+	p.qualityMu.RLock()
+	defer p.qualityMu.RUnlock()
+	return p.curQuality
+}
+
+// CurFileSize 返回当前音源的文件大小（字节），0 表示未知。
+func (p *Player) CurFileSize() int64 {
+	p.qualityMu.RLock()
+	defer p.qualityMu.RUnlock()
+	return p.curFileSize
+}
+
+// setCurQuality 记录实际音质与文件大小。
+func (p *Player) setCurQuality(q string, size int64) {
+	p.qualityMu.Lock()
+	defer p.qualityMu.Unlock()
+	p.curQuality = q
+	p.curFileSize = size
 }
 
 // Intelligence 智能/心动模式
 func (p *Player) Intelligence(appendMode bool) model.Page {
+	// QQ 渠道走相似歌曲推荐，语义与网易云的心动模式一致：
+	// 以当前歌曲为种子，返回同风格歌曲。
+	if p.netease.source == SourceQQ {
+		return p.qqIntelligence(appendMode)
+	}
+
 	var (
 		main    = p.netease.MustMain()
 		curMenu = main.CurMenu()
@@ -603,6 +641,65 @@ func (p *Player) Intelligence(appendMode bool) model.Page {
 	}
 
 	p.PlaySong(song, DurationNext)
+	return nil
+}
+
+// qqIntelligence 是 QQ 渠道的心动模式。
+//
+// 以当前播放歌曲为种子，调用 GetSimilarSongs 拉取同风格推荐，
+// 语义对齐网易云的 PlaymodeIntelligenceList：
+//   - appendMode=false：用「种子 + 推荐」重建播放列表并立即播放
+//   - appendMode=true：把推荐追加到现有列表末尾
+func (p *Player) qqIntelligence(appendMode bool) model.Page {
+	if p.netease.qqClient == nil {
+		p.netease.NotifyError("QQ 音乐渠道未初始化", "请检查配置")
+		return nil
+	}
+	if !p.netease.qqClient.LoggedIn() {
+		page, _ := p.netease.ToQQLoginPage(func() model.Page {
+			p.qqIntelligence(appendMode)
+			return nil
+		})
+		return page
+	}
+
+	seed := p.CurSong()
+	if seed.Id == 0 {
+		p.netease.NotifyInfo("心动模式", "请先播放一首歌")
+		return nil
+	}
+
+	qqSongs, err := p.netease.qqClient.GetSimilarSongs(seed.Id)
+	if err != nil {
+		p.netease.NotifyError("心动模式加载失败", err.Error())
+		return nil
+	}
+	songs := toStructSongs(qqSongs)
+	if len(songs) == 0 {
+		p.netease.NotifyInfo("心动模式", "未找到相似歌曲")
+		return nil
+	}
+
+	if appendMode {
+		_ = p.playlistManager.Initialize(p.CurSongIndex(), append(p.Playlist(), songs...))
+		p.playlistUpdateAt = time.Now()
+		next, err := p.playlistManager.NextSong(true)
+		if err != nil {
+			return nil
+		}
+		p.PlaySong(next, DurationNext)
+		return nil
+	}
+
+	// 种子歌曲排第一，后面接推荐，保证从当前歌平滑过渡。
+	p.SetMode(types.PmIntelligent)
+	p.playingMenuKey = "Intelligent"
+	_ = p.playlistManager.Initialize(0, append([]structs.Song{seed}, songs...))
+	p.playlistUpdateAt = time.Now()
+
+	p.netease.NotifyInfo("心动模式",
+		fmt.Sprintf("已根据《%s》生成 %d 首推荐", seed.Name, len(songs)))
+	p.PlaySong(p.Playlist()[0], DurationNext)
 	return nil
 }
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/go-musicfox/go-musicfox/internal/structs"
-	"github.com/go-musicfox/go-musicfox/utils/netease"
 )
 
 type lyricFetcherStub struct {
@@ -21,7 +20,7 @@ type lyricFetcherStub struct {
 	cloudCalls   int
 }
 
-func (f lyricFetcherStub) FetchPlayableInfo(context.Context, int64) (*netease.PlayableInfo, error) {
+func (f lyricFetcherStub) FetchPlayableInfo(context.Context, structs.Song) (*PlayableInfo, error) {
 	return nil, nil
 }
 
@@ -29,8 +28,9 @@ func (f lyricFetcherStub) FetchStream(context.Context, PlayableSource) (io.ReadC
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
-func (f *lyricFetcherStub) FetchLyric(context.Context, int64) (structs.LRCData, error) {
+func (f *lyricFetcherStub) FetchLyric(_ context.Context, song structs.Song) (structs.LRCData, error) {
 	f.regularCalls++
+	f.songID = song.Id
 	return f.regular, nil
 }
 

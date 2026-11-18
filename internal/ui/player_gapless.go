@@ -43,7 +43,7 @@ func (p *Player) maybePreloadGapless(position time.Duration) {
 	p.gaplessMu.Unlock()
 
 	errorx.Go(func() {
-		url, musicType, err := p.getPlayInfo(next)
+		url, musicType, _, _, err := p.getPlayInfo(next)
 		p.gaplessMu.Lock()
 		defer p.gaplessMu.Unlock()
 		p.gaplessLoading = false

@@ -64,6 +64,13 @@ type Netease struct {
 	shareSvc     *composer.ShareService
 	trackManager *track.Manager
 
+	// qqClient 是 QQ 音乐渠道的 API 客户端。
+	qqClient *qqClient
+	// qqUser 是 QQ 音乐渠道的登录用户，未登录为 nil。
+	qqUser *structs.User
+	// source 是当前激活的渠道。
+	source Source
+
 	playbarHoveredElement PlaybarElement
 
 	// Theme switch notification: update in-place when visible, recreate when expired.
@@ -77,6 +84,11 @@ func NewNetease(app *model.App) *Netease {
 	n := new(Netease)
 	n.lastfm = lastfm.NewClient()
 
+	// 渠道初始化：默认网易云，可由启动参数或配置覆盖。
+	n.source = normalizeSource(configs.AppConfig.Main.Source)
+	n.qqClient = newQQClient()
+	slog.Info("音乐渠道已初始化", "source", n.source, "name", sourceName(n.source))
+
 	quality := configs.AppConfig.Player.SongLevel
 	maxSizeMB := configs.AppConfig.Storage.Cache.Limit
 	nameGen := composer.NewFileNameGenerator()
@@ -85,7 +97,8 @@ func NewNetease(app *model.App) *Netease {
 	n.trackManager = track.NewManager(
 		track.WithNameGenerator(nameGen),
 		track.WithCacher(track.NewCacher(maxSizeMB)),
-		track.WithSongQuality(quality))
+		track.WithSongQuality(quality),
+		track.WithQQMusicFetcher(n.qqClient.Client))
 
 	showTranslation := configs.AppConfig.Main.Lyric.ShowTranslation
 	offset := time.Duration(configs.AppConfig.Main.Lyric.Offset) * time.Millisecond
@@ -288,6 +301,13 @@ func (n *Netease) InitHook(_ *model.App) {
 		}
 		n.trackManager.SetCloudUserID(cloudUserID)
 
+		// 恢复 QQ 音乐登录态（与网易云登录态相互独立）。
+		if loadQQCredential(n) {
+			slog.Info("QQ 音乐渠道已登录", "musicid", n.qqUser.UserId)
+			// 后台同步「我喜欢」，使歌曲列表的爱心图标正确。
+			errorx.Go(func() { refreshQQLikeList(n) }, false)
+		}
+
 		// 刷新界面用户名
 		n.MustMain().RefreshMenuTitle()
 
@@ -436,14 +456,14 @@ func (n *Netease) InitHook(_ *model.App) {
 				"debug", configs.AppConfig.Main.Debug,
 				"seenVersion", seen.Version,
 			)
-		if shouldShow {
-			if !configs.AppConfig.Main.Debug {
-				if err := table.SetByKVModel(storage.ChangelogSeen{}, storage.ChangelogSeen{Version: types.AppVersion}); err != nil {
-					slog.Error("changelog: failed to persist seen version", slogx.Error(err))
-				} else {
-					slog.Debug("changelog: persisted seen version", "version", types.AppVersion)
+			if shouldShow {
+				if !configs.AppConfig.Main.Debug {
+					if err := table.SetByKVModel(storage.ChangelogSeen{}, storage.ChangelogSeen{Version: types.AppVersion}); err != nil {
+						slog.Error("changelog: failed to persist seen version", slogx.Error(err))
+					} else {
+						slog.Debug("changelog: persisted seen version", "version", types.AppVersion)
+					}
 				}
-			}
 				app := n.App
 				slog.Debug("changelog: scheduling AfterFunc", "hasApp", app != nil)
 				time.AfterFunc(max(configs.AppConfig.Startup.ToModel().LoadingDuration, time.Second)-750*time.Millisecond, func() {

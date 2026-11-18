@@ -277,6 +277,10 @@ func buildPlaylistActions(n *Netease) []ActionItem {
 }
 
 func buildSongActions(n *Netease, isSelected bool) []ActionItem {
+	// QQ 音乐渠道只提供部分能力：专辑/歌手关注、标记不喜欢、
+	// 添加到自建歌单在 QQ 侧暂无对应接口，隐藏这些项避免点了无反应。
+	isQQ := n.source == SourceQQ
+
 	items := []ActionItem{
 		{
 			title:  model.MenuItem{Title: iconAlbum + "所属专辑"},
@@ -288,72 +292,89 @@ func buildSongActions(n *Netease, isSelected bool) []ActionItem {
 			action: func() { goToArtistOfSong(n, isSelected) },
 			group:  "nav",
 		},
-		{
-			title: model.MenuItem{Title: iconHeartFilled + "收藏专辑"},
-			page:  func() model.Page { return subscribeAlbum(n, true, isSelected) },
-			group: "subscribe",
-		},
-		{
-			title: model.MenuItem{Title: iconHeartOutline + "取消收藏专辑"},
-			page:  func() model.Page { return subscribeAlbum(n, false, isSelected) },
-			group: "subscribe",
-		},
-		{
-			title: model.MenuItem{Title: iconHeartFilled + "收藏歌手"},
-			page:  func() model.Page { return subscribeArtist(n, true, isSelected) },
-			group: "subscribe",
-		},
-		{
-			title: model.MenuItem{Title: iconHeartOutline + "取消收藏歌手"},
-			page:  func() model.Page { return subscribeArtist(n, false, isSelected) },
-			group: "subscribe",
-		},
-		{
+	}
+
+	if !isQQ {
+		items = append(items,
+			ActionItem{
+				title: model.MenuItem{Title: iconHeartFilled + "收藏专辑"},
+				page:  func() model.Page { return subscribeAlbum(n, true, isSelected) },
+				group: "subscribe",
+			},
+			ActionItem{
+				title: model.MenuItem{Title: iconHeartOutline + "取消收藏专辑"},
+				page:  func() model.Page { return subscribeAlbum(n, false, isSelected) },
+				group: "subscribe",
+			},
+			ActionItem{
+				title: model.MenuItem{Title: iconHeartFilled + "收藏歌手"},
+				page:  func() model.Page { return subscribeArtist(n, true, isSelected) },
+				group: "subscribe",
+			},
+			ActionItem{
+				title: model.MenuItem{Title: iconHeartOutline + "取消收藏歌手"},
+				page:  func() model.Page { return subscribeArtist(n, false, isSelected) },
+				group: "subscribe",
+			},
+		)
+	}
+
+	items = append(items,
+		ActionItem{
 			title:  model.MenuItem{Title: iconDownload + "下载"},
 			action: func() { downloadSong(n, isSelected) },
 			group:  "download",
 		},
-		{
+		ActionItem{
 			title:  model.MenuItem{Title: iconDownloadDoc + "下载歌词"},
 			action: func() { downloadSongLrc(n, isSelected) },
 			group:  "download",
 		},
-		{
+		ActionItem{
 			title: model.MenuItem{Title: iconThumbUp + "添加到喜欢"},
 			page:  func() model.Page { return likeSong(n, true, isSelected) },
 			group: "like",
 		},
-		{
+		ActionItem{
 			title: model.MenuItem{Title: iconThumbDown + "从喜欢移除"},
 			page:  func() model.Page { return likeSong(n, false, isSelected) },
 			group: "like",
 		},
-		{
-			title:  model.MenuItem{Title: iconThumbBan + "标记为不喜欢"},
-			action: func() { confirmTrashSong(n, isSelected) },
-			group:  "like",
-		},
-		{
-			title: model.MenuItem{Title: iconPlaylistAdd + "添加至歌单"},
-			page:  func() model.Page { return openAddSongToUserPlaylistMenu(n, isSelected, true) },
-			group: "playlist",
-		},
-		{
-			title: model.MenuItem{Title: iconPlaylistRemove + "从歌单移除"},
-			page:  func() model.Page { return openAddSongToUserPlaylistMenu(n, isSelected, false) },
-			group: "playlist",
-		},
-		{
+	)
+
+	if !isQQ {
+		items = append(items,
+			ActionItem{
+				title:  model.MenuItem{Title: iconThumbBan + "标记为不喜欢"},
+				action: func() { confirmTrashSong(n, isSelected) },
+				group:  "like",
+			},
+			ActionItem{
+				title: model.MenuItem{Title: iconPlaylistAdd + "添加至歌单"},
+				page:  func() model.Page { return openAddSongToUserPlaylistMenu(n, isSelected, true) },
+				group: "playlist",
+			},
+			ActionItem{
+				title: model.MenuItem{Title: iconPlaylistRemove + "从歌单移除"},
+				page:  func() model.Page { return openAddSongToUserPlaylistMenu(n, isSelected, false) },
+				group: "playlist",
+			},
+		)
+	}
+
+	items = append(items,
+		ActionItem{
 			title:  model.MenuItem{Title: iconShuffle + "相似的歌曲"},
 			action: func() { findSimilarSongs(n, isSelected) },
 			group:  "discover",
 		},
-		{
+		ActionItem{
 			title:  model.MenuItem{Title: iconSearch + "搜索歌名"},
 			action: func() { searchSong(n, isSelected) },
 			group:  "discover",
 		},
-	}
+	)
+
 	return items
 }
 

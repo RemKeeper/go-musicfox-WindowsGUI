@@ -48,7 +48,9 @@ func (m *UserPlaylistMenu) Playlists() []structs.Playlist {
 }
 
 func (m *UserPlaylistMenu) SubMenu(_ *model.App, index int) model.Menu {
-	if len(m.playlists) < index {
+	// 必须用 >= 而非 >：index 等于长度时同样越界。
+	// 未登录或尚未加载歌单时 playlists 为空，此时点击任意项都会 panic。
+	if index < 0 || index >= len(m.playlists) {
 		return nil
 	}
 	return NewPlaylistDetailMenu(m.baseMenu, m.playlists[index].Id)

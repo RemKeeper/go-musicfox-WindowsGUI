@@ -18,6 +18,45 @@ type Song struct {
 	DjRadioEpisodeId int64   `json:"djRadioEpisodeId"` // 若为播客，则非 0
 	DjRadio          DjRadio `json:"djRadio"`          // 播客，电台使用
 	UnMatched        bool    `json:"unMatched"`        // 云盘内资源匹配状态
+
+	// Source 是歌曲所属渠道。空串等价于 SourceNetease，保证旧快照兼容。
+	Source string `json:"source,omitempty"`
+	// Mid 是 QQ 音乐等渠道的字符串主键（网易云不使用）。
+	Mid string `json:"mid,omitempty"`
+	// MediaMid 是 QQ 音乐播放链接所需的媒体标识，可能为空。
+	MediaMid string `json:"mediaMid,omitempty"`
+	// SongType 是 QQ 音乐的歌单写入类型（普通单曲为 0）。
+	// 收藏/取消收藏时需原样回传，否则特殊曲目会写错。
+	SongType int `json:"songType,omitempty"`
+	// FileSizes 是各音质档位的文件大小声明（字节），仅 QQ 渠道填充。
+	//
+	// 键为 qqmusic.Quality.Key() 的稳定标识（如 "sq"、"sq_ogg"），
+	// 值为该档位声明的字节数；0 或缺失表示该档位不可用。
+	// 用于状态栏显示实际码率与文件大小，避免播放时额外发 HEAD 请求。
+	//
+	// 注意不能用显示名作键：SQ(FLAC) 与 SQ(OGG 640) 显示名相同，会冲突。
+	FileSizes map[string]int64 `json:"fileSizes,omitempty"`
+}
+
+// 渠道标识。
+const (
+	// SourceNetease 是网易云音乐渠道（默认）。
+	SourceNetease = "netease"
+	// SourceQQ 是 QQ 音乐渠道。
+	SourceQQ = "qq"
+)
+
+// EffectiveSource 返回规范化的渠道标识，空串归一为网易云。
+func (s Song) EffectiveSource() string {
+	if s.Source == "" {
+		return SourceNetease
+	}
+	return s.Source
+}
+
+// IsQQ 报告该歌曲是否属于 QQ 音乐渠道。
+func (s Song) IsQQ() bool {
+	return s.Source == SourceQQ
 }
 
 func (s Song) ArtistName() string {

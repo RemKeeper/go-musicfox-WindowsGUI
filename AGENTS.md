@@ -101,16 +101,16 @@
 
 ## 项目概述
 
-go-musicfox 是基于 Go 和 bubbletea 的网易云音乐 TUI 客户端，支持 macOS/Linux/Windows。
+go-musicfox 是基于 Go 和 bubbletea 的多渠道音乐 TUI 客户端（网易云音乐 / QQ音乐），支持 macOS/Linux/Windows。
 
 **技术栈**：
 - **UI 框架**：bubbletea + foxful-cli（部分定制）
 - **音频处理**：beep、go-mp3、go-flac
 - **存储**：BoltDB
 - **配置**：TOML + mapstructure；`configs.SetTOMLValue(path, keyPath, value)` 使用 `github.com/pelletier/go-toml/v2/unstable/edit` 按键路径保真编辑既有 TOML。`configs.UpgradeConfig(path)` 将内嵌默认 TOML 中用户文件缺失的叶子项追加到对应 table；`upgrade-config` 子命令调用它。两者均保留无关注释、布局、已有值、未知键与原文件权限，并以原子替换写回。
-- **API**：netease-music SDK
+- **API**：网易云走 `netease-music` SDK；QQ 音乐走自研 `internal/qqmusic`（见「多渠道架构」）
 
-**项目结构**：`cmd/` 入口 | `internal/` 核心业务（22个包） | `utils/` 工具 | `configs/` 嵌入式配置
+**项目结构**：`cmd/` 入口 | `internal/` 核心业务（23个包） | `utils/` 工具 | `configs/` 嵌入式配置
 
 ## 核心架构
 
@@ -149,6 +149,53 @@ type Player interface {
     Close()
 }
 ```
+
+### 多渠道架构
+
+QQ 音乐作为与网易云**并列的独立渠道**接入，共用播放器、歌词、播放列表与桌面歌词。
+
+**渠道标识**：`structs.Song.Source`（`"netease"` / `"qq"`，空串等价于 `netease`，保证旧快照兼容）。
+QQ 歌曲额外使用 `Song.Mid`（字符串主键）与 `Song.MediaMid`（播放链接必需）。
+
+**数据层**（`internal/qqmusic`）：自研 Go 客户端，对齐 `QQMusicApi`（Python）的能力子集。
+
+| 文件 | 职责 |
+|------|------|
+| `client.go` | HTTP 客户端、三套平台 comm 构造、设备指纹轮换、风控重试 |
+| `sign.go` | `zzc` 签名（SHA1 分片 + 异或 + 去填充 base64） |
+| `qrc.go` | QRC 歌词解密（自定义 3DES + zlib）与 XML 提取 |
+| `sbox.go` | 3DES S 盒（由 Python 实现生成，勿手改） |
+| `api.go` / `api_more.go` | 搜索、歌曲、歌单、榜单、专辑、歌手、推荐、我的收藏（读） |
+| `like.go` | 「我喜欢」写入：`LikeSong` / `UnlikeSong`（dirid=201） |
+| `lyric.go` | LRC + QRC → `structs.LRCData`（QRC 直接填入 `Yrc`） |
+| `playable.go` | 播放链接（vkey + CDN 调度 + 音质降级链） |
+| `login.go` | QQ / 微信扫码登录、凭证解析 |
+
+**关键约束**（改动时必须保持）：
+
+- 搜索接口在 `musicu.fcg` 上**恒返回空列表**，必须走 `musics.fcg` + 签名 + 完整 Android 指纹（`QIMEI36`/`OpenUDID`/`traceid`）。
+- 签名输入必须与发送 body **逐字节一致**（`json.Marshal` 默认行为即可，不要引入缩进或 HTML 转义）。
+- 搜索有服务端风控：`code=2001` 时换指纹重试。`Client.Do` 已内置 4 次退避重试，**不要移除**。
+- 播放链接的 `filename` 用 `file.media_mid`，不是 `mid`。
+- 歌词 `crypt=0` 返回 base64(LRC)；`qrc=1` 返回 hex(3DES+zlib+XML)。
+- QRC 词元 `词(起始ms,时长ms)` 与 `internal/lyric` 的 LRC 风格 YRC 解析器天然兼容（判定为 `len(parts) < 2` 才跳过），**无需格式转换**，只需剥离 XML 并反转义。
+
+**音源路由**（`internal/track`）：`Fetcher` 按 `Song.Source` 分流；`PlayableInfo` 已从 `utils/netease` 提升到 `track` 包，解除对具体渠道的依赖。缓存键为 `{source}-{songId}-{priority}.{ext}`，**渠道前缀不可省略**（两个渠道的 int64 ID 空间重叠）。
+
+**渠道切换**（`internal/ui`）：
+- `Netease.source` 保存当前渠道，`SetSource` 只切换数据来源，不中断播放。
+- `MainMenu.rebuild()` 按渠道重建一级菜单与子菜单：网易云 17 项、QQ 音乐 9 项（QQ 侧无云盘/电台/私人FM，故不出现）。
+- 主菜单末尾「切换音乐源」切换渠道。
+- 启动时可用 `--source=qq` 或 `[main].source = "qq"` 指定。
+
+**登录**：两个渠道的登录态完全独立。网易云走原有 Cookie/扫码/WebView；QQ 走 `internal/ui/login_qq_page.go`（QQ / 微信扫码，Tab 切换），凭证持久化在 `storage.QQMusicCredential`。
+
+**「我喜欢」**：两个渠道的收藏状态与写入接口都独立。
+- 网易云：`service.PlaylistTracksService` + `utils/likelist.RefreshLikeList`。
+- QQ 音乐：`qqmusic.LikeSong` / `UnlikeSong` 操作 `dirid=201` 的虚拟歌单；写入类型必须回传 `Song.SongType`（普通单曲 0，特殊曲目 5/111/112/113 原样保留），否则特殊曲目会写错。
+- `utils/likelist` 按渠道分桶（`lists[source]`），**不可退化为单一全局集合**——两个渠道的 int64 ID 空间重叠。
+- 操作成功后用 `likelist.SetLike` 做乐观更新，避免为刷新一个图标重新拉整表；启动与登录后由 `refreshQQLikeList` 后台全量同步。
+- QQ 侧暂无「标记不喜欢」「添加到自建歌单」「收藏专辑/歌手」，右键菜单按渠道隐藏这些项（`buildSongActions` 的 `isQQ` 分支）。
 
 ### 播放引擎
 
@@ -197,6 +244,16 @@ type Player interface {
 1. 实现 `internal/player.Player` 接口
 2. 在 `player.go:NewPlayerFromConfig()` 添加 case
 3. 添加配置支持
+
+### 添加新音乐渠道
+
+1. 在 `internal/<channel>/` 实现 API 客户端（参考 `internal/qqmusic`），暴露 `FetchPlayableInfo` / `FetchLyric` 满足 `track.QQMusicFetcher` 同构接口
+2. 在 `structs.Song` 的渠道常量中登记 `Source` 值
+3. 在 `internal/track/fetcher.go` 的 `FetchPlayableInfo` / `FetchLyric` 增加分支
+4. 在 `internal/ui/source.go` 的 `allSources` 与 `normalizeSource` 登记渠道，`sourceName` 自动生效
+5. 在 `internal/ui/menu_main.go` 增加 `build<Channel>()`，按该渠道能力裁剪菜单项
+6. 提供转换函数（参考 `internal/ui/qq_convert.go`），把渠道歌曲映射为 `structs.Song` 并填好 `Source`/`Mid`
+7. 若渠道需要登录，实现独立登录页并持久化到独立的 `storage.*Credential` key
 
 ### 修改快捷键
 

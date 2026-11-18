@@ -542,12 +542,12 @@ func (h *EventHandler) handlePlayerBarElementsClick(msg tea.MouseMsg, a *model.A
 	// 喜欢状态
 	heartWidth := 0
 	if curSong.Id > 0 {
-		_ = likelist.IsLikeSong(curSong.Id)
+		_ = likelist.IsLikeSongOf(curSong.EffectiveSource(), curSong.Id)
 		heartWidth = runewidth.StringWidth("♥ ")
 	}
 	if heartWidth > 0 {
 		if mouse.X >= currentX && mouse.X < currentX+heartWidth {
-			isLiked := likelist.IsLikeSong(curSong.Id)
+			isLiked := likelist.IsLikeSongOf(curSong.EffectiveSource(), curSong.Id)
 			newPage := likeSong(h.netease, !isLiked, false)
 			return true, newPage, a.Tick(time.Nanosecond)
 		}

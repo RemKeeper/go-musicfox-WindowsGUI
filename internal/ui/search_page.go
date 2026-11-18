@@ -216,6 +216,15 @@ func (s *SearchPage) enterHandler() (model.Page, tea.Cmd) {
 		s.tips = util.SetFgStyle(model.T(MsgSearchKeywordRequired), lipgloss.BrightRed)
 		return s, nil
 	}
+
+	// QQ 音乐渠道的搜索由 qqSearchResultMenu 自行按维度请求，
+	// 这里只需把关键词交给它并进入菜单，无需调用网易云搜索接口。
+	if s.netease.source == SourceQQ {
+		s.netease.MustMain().EnterMenu(nil, nil)
+		s.Reset()
+		return s.netease.MustMain(), s.netease.Tick(time.Nanosecond)
+	}
+
 	loading := model.NewLoading(s.netease.MustMain(), s.menuTitle)
 	loading.DisplayNotOnlyOnMain()
 	loading.Start()

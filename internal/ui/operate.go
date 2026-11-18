@@ -127,6 +127,11 @@ func likeSong(n *Netease, isLike bool, isSelected bool) model.Page {
 			return nil
 		}
 
+		// QQ 音乐渠道的收藏走独立接口。
+		if song.IsQQ() {
+			return likeQQSong(n, song, isLike)
+		}
+
 		// TODO: 提取为函数
 		if n.user.MyLikePlaylistID == 0 {
 			userPlaylists := service.UserPlaylistService{
@@ -971,7 +976,7 @@ func shareItem(n *Netease, isSelected bool, selectedIndex int) {
 		})
 		return
 	}
-	
+
 	// 分享成功通知
 	notify.Notify(notify.NotifyContent{
 		Title:   model.T(MsgOperationShareSuccess),

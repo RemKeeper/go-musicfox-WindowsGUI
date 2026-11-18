@@ -2,6 +2,8 @@
 
 go-musicfox 是用 Go 写的又一款网易云音乐命令行客户端，支持各种音质级别、UnblockNeteaseMusic、Last.fm、MPRIS 和 macOS 交互响应（睡眠暂停、蓝牙耳机连接断开响应和菜单栏控制等）等功能特性，以及 DLNA 投送。
 
+同时支持 **QQ 音乐** 作为并列渠道：可在主菜单「切换音乐源」实时切换，或启动时用 `--source=qq` 直接进入。两个渠道共用播放器、歌词（含逐字歌词）与播放列表，登录态相互独立。
+
 [官网](https://musicfox.anhoder.com) | [Icon](https://github.com/go-musicfox/go-musicfox-icon)
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/go-musicfox/go-musicfox) ![GitHub repo size](https://img.shields.io/github/repo-size/go-musicfox/go-musicfox) ![GitHub](https://img.shields.io/github/license/go-musicfox/go-musicfox) ![Last Tag](https://badgen.net/github/tag/go-musicfox/go-musicfox) ![GitHub last commit](https://badgen.net/github/last-commit/go-musicfox/go-musicfox) ![GitHub All Releases](https://img.shields.io/github/downloads/go-musicfox/go-musicfox/total)
@@ -387,6 +389,7 @@ DLNA 引擎允许你将音乐投送到兼容 DLNA 的设备（如智能电视、
 
 
 </details>
+
 <details>
 <summary>
 引入完整的主题配置系统，支持运行时切换、自定义配色和多种内置主题。

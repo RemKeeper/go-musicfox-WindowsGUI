@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 type YRCWord struct {
@@ -175,61 +176,79 @@ func parseLRCStyleYRCLine(line string) *YRCLine {
 		Words:     []YRCWord{},
 	}
 
-	// 解析词段：(wordTime,duration,0)word
+	// 解析词段。
+	//
+	// 支持两种词元布局：
+	//   - LRC 风格 YRC：`(time,duration,0)word`（词在括号之后）
+	//   - QRC（QQ 音乐）：`word(time,duration)`（词在括号之前）
+	//
+	// QRC 的词在括号前，若只按「括号后取词」解析，每行首个词会被丢弃，
+	// 表现为「歌词缺第一个字」。
 	content := line[closeBracket+1:]
 
-	// 使用正则表达式匹配模式：(time,duration,0)word
-	// 但由于词可以是任何 Unicode 字符，我们手动解析
+	var pendingText string // 当前 `(` 之前累积的文本
 	i := 0
 	for i < len(content) {
-		// 查找下一个 (
 		if content[i] != '(' {
+			// 累积括号前的文本（QRC 布局的词）。
+			// 必须按 rune 前进，否则多字节字符会被拆坏。
+			_, size := utf8.DecodeRuneInString(content[i:])
+			if size <= 0 {
+				size = 1
+			}
+			pendingText += content[i : i+size]
+			i += size
+			continue
+		}
+
+		// 提取时间信息 (time,duration[,0])
+		//
+		// 必须只匹配「紧邻的合法时间标签」，不能用 strings.Index 找最远的 `)`：
+		// QRC 里 `(` 本身可能是歌词内容，且会与后面的时间标签粘连成
+		// `((1440,160)`，此时第一个 `(` 不是时间标签，应作为文本。
+		wordTime, wordDuration, tagEnd, ok := scanTimingTag(content, i)
+		if !ok {
+			// 不是时间括号，把 `(` 当普通文本累积。
+			pendingText += "("
 			i++
 			continue
 		}
+		closeParenIdx := tagEnd
 
-		// 提取时间信息 (time,duration,0)
-		closeParenIdx := strings.Index(content[i:], ")")
-		if closeParenIdx == -1 {
-			break
-		}
-		closeParenIdx += i
-
-		timingInfo := content[i+1 : closeParenIdx]
-		parts := strings.Split(timingInfo, ",")
-		if len(parts) < 2 {
+		var wordText string
+		if pendingText != "" {
+			// QRC 布局：词在括号之前。
+			wordText = pendingText
+			pendingText = ""
 			i = closeParenIdx + 1
-			continue
+		} else {
+			// LRC 布局：词在括号之后，直到下一个 `(`。
+			j := closeParenIdx + 1
+			for j < len(content) && content[j] != '(' {
+				j++
+			}
+			wordText = content[closeParenIdx+1 : j]
+			i = j
 		}
 
-		var wordTime, wordDuration int64
-		if _, err := fmt.Sscanf(parts[0], "%d", &wordTime); err != nil {
-			i = closeParenIdx + 1
-			continue
-		}
-		if _, err := fmt.Sscanf(parts[1], "%d", &wordDuration); err != nil {
-			i = closeParenIdx + 1
-			continue
-		}
-
-		// 提取词（下一个字符或直到下一个 '(' 的字符）
-		i = closeParenIdx + 1
-		wordStart := i
-		for i < len(content) && content[i] != '(' {
-			i++
-		}
-
-		wordText := content[wordStart:i]
 		if wordText == "" {
 			continue
 		}
 
-		word := YRCWord{
+		yrcLine.Words = append(yrcLine.Words, YRCWord{
 			Word:      wordText,
 			StartTime: wordTime,
 			EndTime:   wordTime + wordDuration,
-		}
-		yrcLine.Words = append(yrcLine.Words, word)
+		})
+	}
+
+	// 行尾残留文本（没有时间标签）作为最后一词，时间沿用行结束时间。
+	if pendingText != "" {
+		yrcLine.Words = append(yrcLine.Words, YRCWord{
+			Word:      pendingText,
+			StartTime: yrcLine.EndTime,
+			EndTime:   yrcLine.EndTime,
+		})
 	}
 
 	if len(yrcLine.Words) == 0 {
@@ -237,6 +256,66 @@ func parseLRCStyleYRCLine(line string) *YRCLine {
 	}
 
 	return &yrcLine
+}
+
+// scanTimingTag 从 content[start] 处的 `(` 开始，尝试解析一个时间标签。
+//
+// 合法格式：`(起始,时长)` 或 `(起始,时长,0)`，两个数字均为纯十进制。
+// 成功返回时间、时长、`)` 的下标与 true；否则返回 false。
+//
+// 必须严格校验，避免把歌词里的 `(` 误当成时间标签
+// （QRC 中常见 `((1440,160)` 这种粘连）。
+func scanTimingTag(content string, start int) (startMs, durationMs int64, end int, ok bool) {
+	if start >= len(content) || content[start] != '(' {
+		return 0, 0, 0, false
+	}
+
+	// 找到最近的 `)`，且中间不能出现 `(`。
+	i := start + 1
+	for i < len(content) && content[i] != ')' {
+		if content[i] == '(' {
+			return 0, 0, 0, false
+		}
+		i++
+	}
+	if i >= len(content) {
+		return 0, 0, 0, false
+	}
+
+	parts := strings.Split(content[start+1:i], ",")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, 0, 0, false
+	}
+	if !scanInt(parts[0], &startMs) || !scanInt(parts[1], &durationMs) {
+		return 0, 0, 0, false
+	}
+	// 第三个字段（若存在）必须是数字，用于区分 `(0,160,0)` 与 `(0,160)x`。
+	if len(parts) == 3 {
+		var third int64
+		if !scanInt(parts[2], &third) {
+			return 0, 0, 0, false
+		}
+	}
+	return startMs, durationMs, i, true
+}
+
+// scanInt 把十进制整数字符串解析到 out，成功返回 true。
+//
+// 比 fmt.Sscanf 更严格：拒绝空串、带符号或带后缀的输入，
+// 用于判定括号内是否为合法的时间标签。
+func scanInt(s string, out *int64) bool {
+	if s == "" {
+		return false
+	}
+	var v int64
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+		v = v*10 + int64(s[i]-'0')
+	}
+	*out = v
+	return true
 }
 
 // parseTimeTag 将 LRC 时间戳如 "01:23.45" 解析为毫秒

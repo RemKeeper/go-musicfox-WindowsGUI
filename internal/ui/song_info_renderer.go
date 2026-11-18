@@ -70,7 +70,7 @@ func (r *SongInfoRenderer) View(a *model.App, main *model.Main) (view string, li
 
 	var isLike bool
 	if song.Id > 0 {
-		isLike = likelist.IsLikeSong(song.Id)
+		isLike = likelist.IsLikeSongOf(song.EffectiveSource(), song.Id)
 	}
 
 	// Output caching: skip full rebuild when nothing changed. styleGen guards
@@ -84,14 +84,14 @@ func (r *SongInfoRenderer) View(a *model.App, main *model.Main) (view string, li
 	}
 
 	var (
-		builder  strings.Builder
-		segments []Segment
-		appColors = configs.GetCurrentAppColors()
-		artistColor = configs.SafeGetForeground(appColors.PlaybarArtist, configs.PlaybarArtistColor)
-		modeColor   = configs.SafeGetForeground(appColors.PlaybarMode, configs.PlaybarModeColor)
-		volumeColor = configs.SafeGetForeground(appColors.PlaybarVolume, configs.PlaybarVolumeColor)
-		playingColor = configs.SafeGetForeground(appColors.PlaybarPlaying, configs.PlaybarPlayingColor)
-		pausedColor  = configs.SafeGetForeground(appColors.PlaybarPaused, configs.PlaybarPausedColor)
+		builder           strings.Builder
+		segments          []Segment
+		appColors         = configs.GetCurrentAppColors()
+		artistColor       = configs.SafeGetForeground(appColors.PlaybarArtist, configs.PlaybarArtistColor)
+		modeColor         = configs.SafeGetForeground(appColors.PlaybarMode, configs.PlaybarModeColor)
+		volumeColor       = configs.SafeGetForeground(appColors.PlaybarVolume, configs.PlaybarVolumeColor)
+		playingColor      = configs.SafeGetForeground(appColors.PlaybarPlaying, configs.PlaybarPlayingColor)
+		pausedColor       = configs.SafeGetForeground(appColors.PlaybarPaused, configs.PlaybarPausedColor)
 		heartLikedColor   = configs.SafeGetForeground(appColors.PlaybarHeartLiked, configs.PlaybarHeartLikedColor)
 		heartUnlikedColor = configs.SafeGetForeground(appColors.PlaybarHeartUnliked, configs.PlaybarHeartUnlikedColor)
 	)

@@ -56,8 +56,17 @@ func (m *Cacher) IsDisabled() bool {
 	return m.maxSize == 0
 }
 
-func (m *Cacher) buildKey(songID int64, quality service.SongQualityLevel, fileType string) string {
-	return fmt.Sprintf("%d-%d.%s", songID, priority[quality], fileType)
+// cacheKeyPrefix 返回歌曲所属渠道的缓存键前缀。
+//
+// 网易云与 QQ 音乐的歌曲 ID 都是 int64 且空间重叠，不加渠道前缀会导致
+// 两个渠道的同号歌曲命中同一份缓存文件。
+func cacheKeyPrefix(song structs.Song) string {
+	return song.EffectiveSource()
+}
+
+// buildKey 构造缓存文件名：`{source}-{songId}-{priority}.{ext}`。
+func (m *Cacher) buildKey(song structs.Song, quality service.SongQualityLevel, fileType string) string {
+	return fmt.Sprintf("%s-%d-%d.%s", cacheKeyPrefix(song), song.Id, priority[quality], fileType)
 }
 
 func (m *Cacher) ensureDirExists() error {
@@ -78,7 +87,7 @@ func (m *Cacher) Put(song structs.Song, quality service.SongQualityLevel, fileTy
 		return fmt.Errorf("cannot put cache, directory check failed: %w", err)
 	}
 
-	key := m.buildKey(song.Id, quality, fileType)
+	key := m.buildKey(song, quality, fileType)
 	filePath := filepath.Join(m.musicDir, key)
 
 	tempFile, err := os.CreateTemp(m.musicDir, "song-*.tmp")
@@ -114,7 +123,7 @@ func (m *Cacher) Put(song structs.Song, quality service.SongQualityLevel, fileTy
 
 // GetPath 尝试从缓存中获取一首歌的文件路径
 // 它返回满足最低音质要求的最高音质的歌曲文件路径
-func (m *Cacher) GetPath(songId int64, minQuality service.SongQualityLevel) (filePath string, fileType string, err error) {
+func (m *Cacher) GetPath(song structs.Song, minQuality service.SongQualityLevel) (filePath string, fileType string, err error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -122,9 +131,8 @@ func (m *Cacher) GetPath(songId int64, minQuality service.SongQualityLevel) (fil
 		return "", "", os.ErrNotExist
 	}
 
-	songIdStr := strconv.FormatInt(songId, 10)
-
-	pattern := filepath.Join(m.musicDir, fmt.Sprintf("%s-*.*", songIdStr))
+	// 缓存文件名形如 `{source}-{songId}-{priority}.{ext}`。
+	pattern := filepath.Join(m.musicDir, fmt.Sprintf("%s-%d-*.*", cacheKeyPrefix(song), song.Id))
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to glob cache files with pattern %s: %w", pattern, err)
@@ -150,18 +158,19 @@ func (m *Cacher) GetPath(songId int64, minQuality service.SongQualityLevel) (fil
 		}
 		baseName := fileName[:len(fileName)-len(ext)]
 
-		parts := strings.SplitN(baseName, "-", 2)
-		if len(parts) != 2 {
+		// 跳过渠道前缀后，剩下 `{songId}-{priority}`。
+		parts := strings.SplitN(baseName, "-", 3)
+		if len(parts) != 3 {
 			slog.Warn("Skipping malformed cache file.", "filename", fileName)
 			continue
 		}
 
-		parsedSongId, err := strconv.ParseInt(parts[0], 10, 64)
-		if err != nil || parsedSongId != songId {
+		parsedSongId, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || parsedSongId != song.Id {
 			continue
 		}
 
-		p, err := strconv.Atoi(parts[1])
+		p, err := strconv.Atoi(parts[2])
 		if err != nil {
 			slog.Warn("Skipping malformed cache file with invalid priority.", "filename", fileName)
 			continue
@@ -185,8 +194,8 @@ func (m *Cacher) GetPath(songId int64, minQuality service.SongQualityLevel) (fil
 }
 
 // Get 尝试从缓存中获取一首歌的数据流
-func (m *Cacher) Get(songId int64, minQuality service.SongQualityLevel) (io.ReadCloser, string, error) {
-	filePath, fileType, err := m.GetPath(songId, minQuality)
+func (m *Cacher) Get(song structs.Song, minQuality service.SongQualityLevel) (io.ReadCloser, string, error) {
+	filePath, fileType, err := m.GetPath(song, minQuality)
 	if err != nil {
 		return nil, "", err
 	}

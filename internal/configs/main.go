@@ -1,6 +1,8 @@
 package configs
 
-import "github.com/go-musicfox/netease-music/service"
+import (
+	"github.com/go-musicfox/netease-music/service"
+)
 
 type MainOptions struct {
 	ShowTitle              bool                     // 主界面是否显示标题
@@ -48,6 +50,9 @@ type MainConfig struct {
 	Account      AccountConfig      `koanf:"account"`
 	// 界面语言（如 "zh"、"zh-CN"、"en"），影响 foxful-cli 内置文案。留空跟随默认（中文）
 	Locale string `koanf:"locale"`
+	// 启动时激活的音乐渠道："netease"（默认）或 "qq"。
+	// 也可通过命令行 --source=qq 覆盖。
+	Source string `koanf:"source"`
 }
 
 // NotificationConfig 桌面通知相关设置

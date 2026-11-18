@@ -19,7 +19,6 @@ import (
 	"github.com/go-musicfox/go-musicfox/internal/structs"
 	"github.com/go-musicfox/go-musicfox/utils/app"
 	"github.com/go-musicfox/go-musicfox/utils/filex"
-	"github.com/go-musicfox/go-musicfox/utils/netease"
 )
 
 // supportedFileExtensions 本地下载目录中会尝试解析的扩展名。
@@ -47,6 +46,8 @@ type Manager struct {
 	quality     service.SongQualityLevel
 	sfGroup     singleflight.Group
 	cloudUserID atomic.Int64
+	// qqFetcher 是 QQ 音乐渠道的音源实现，未注入时为 nil。
+	qqFetcher QQMusicFetcher
 }
 
 // ManagerOption 是用于配置 Manager 的函数类型。
@@ -68,7 +69,10 @@ func NewManager(opts ...ManagerOption) *Manager {
 		m.cacher = NewCacher(0) // 禁用
 	}
 	if m.fetcher == nil {
-		m.fetcher = NewFetcher(WithFetcherSongQuality(m.quality))
+		m.fetcher = NewFetcher(
+			WithFetcherSongQuality(m.quality),
+			withQQMusicFetcher(m.qqFetcher),
+		)
 	}
 	if m.tagger == nil {
 		m.tagger = NewTagger()
@@ -108,6 +112,16 @@ func WithCacher(cacher *Cacher) ManagerOption {
 func WithFetcher(fetcher Fetcher) ManagerOption {
 	return func(m *Manager) {
 		m.fetcher = fetcher
+	}
+}
+
+// WithQQMusicFetcher 注入 QQ 音乐渠道实现。
+//
+// 注入后 Fetcher 会按 Song.Source 路由到对应渠道；未注入时 QQ 歌曲会报错，
+// 网易云行为完全不受影响。
+func WithQQMusicFetcher(qq QQMusicFetcher) ManagerOption {
+	return func(m *Manager) {
+		m.qqFetcher = qq
 	}
 }
 
@@ -226,7 +240,8 @@ func (m *Manager) DownloadLyric(ctx context.Context, song structs.Song) (string,
 func (m *Manager) GetLyric(ctx context.Context, song structs.Song) (structs.LRCData, error) {
 	cloudUserID := m.cloudUserID.Load()
 	preferCloudLyric := shouldPreferCloudLyric(song)
-	key := fmt.Sprintf("lyric-fetch-%d-%d-%t", cloudUserID, song.Id, preferCloudLyric)
+	// key 必须带渠道前缀，避免两个渠道的同号歌曲共用歌词结果。
+	key := fmt.Sprintf("lyric-fetch-%s-%d-%d-%t", song.EffectiveSource(), cloudUserID, song.Id, preferCloudLyric)
 	result, err, _ := m.sfGroup.Do(key, func() (any, error) {
 		if preferCloudLyric && cloudUserID != 0 {
 			data, cloudErr := m.fetcher.FetchCloudLyric(ctx, cloudUserID, song.Id)
@@ -241,7 +256,7 @@ func (m *Manager) GetLyric(ctx context.Context, song structs.Song) (structs.LRCD
 					"songId", song.Id)
 			}
 		}
-		return m.fetcher.FetchLyric(ctx, song.Id)
+		return m.fetcher.FetchLyric(ctx, song)
 	})
 
 	if err != nil {
@@ -278,7 +293,9 @@ func (m *Manager) ClearCache() error {
 
 // resolveSongSource 严格按 已下载 -> 缓存 -> 网络的顺序解析音源。
 func (m *Manager) resolveSongSource(ctx context.Context, song structs.Song) (PlayableSource, error) {
-	key := fmt.Sprintf("song-resolve-%d", song.Id)
+	// singleflight key 必须带渠道前缀：两个渠道的 int64 ID 空间重叠，
+	// 否则同一 ID 的网易云与 QQ 歌曲会共用一次解析结果。
+	key := fmt.Sprintf("song-resolve-%s-%d", song.EffectiveSource(), song.Id)
 	result, err, _ := m.sfGroup.Do(key, func() (any, error) {
 		// 检查下载目录
 		for _, ext := range supportedFileExtensions {
@@ -294,7 +311,7 @@ func (m *Manager) resolveSongSource(ctx context.Context, song structs.Song) (Pla
 					Song: song,
 					Type: SourceDownloaded,
 					Path: finalFilePath,
-					Info: &netease.PlayableInfo{
+					Info: &PlayableInfo{
 						URL:       "file://" + finalFilePath,
 						MusicType: ext,
 					},
@@ -304,14 +321,14 @@ func (m *Manager) resolveSongSource(ctx context.Context, song structs.Song) (Pla
 
 		// 检查缓存
 		if !m.cacher.IsDisabled() {
-			cachePath, fileType, cacheErr := m.cacher.GetPath(song.Id, m.quality)
+			cachePath, fileType, cacheErr := m.cacher.GetPath(song, m.quality)
 			if cacheErr == nil {
 				slog.Debug("Resolved source: Cached", "songId", song.Id)
 				return PlayableSource{
 					Song: song,
 					Type: SourceCached,
 					Path: cachePath,
-					Info: &netease.PlayableInfo{
+					Info: &PlayableInfo{
 						URL:       "file://" + cachePath,
 						MusicType: fileType,
 					},
@@ -325,7 +342,7 @@ func (m *Manager) resolveSongSource(ctx context.Context, song structs.Song) (Pla
 
 		// 从网络获取
 		slog.Debug("Local sources miss, resolving from network...", "songId", song.Id)
-		info, err := m.fetcher.FetchPlayableInfo(ctx, song.Id)
+		info, err := m.fetcher.FetchPlayableInfo(ctx, song)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch playable info: %w", err)
 		}
@@ -371,7 +388,7 @@ func (m *Manager) persistCachedSource(ctx context.Context, source PlayableSource
 	fileName, _ := m.nameGen.Song(source.Song, source.Info.MusicType)
 	finalFilePath := filepath.Join(m.downloadDir, fileName)
 
-	stream, _, err := m.cacher.Get(source.Id, m.quality)
+	stream, _, err := m.cacher.Get(source.Song, m.quality)
 	if err != nil {
 		return "", err
 	}

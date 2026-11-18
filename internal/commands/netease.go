@@ -23,8 +23,12 @@ import (
 func NewPlayerCommand() *gcli.Command {
 	cmd := &gcli.Command{
 		Name:   "netease",
-		UseFor: "Command line player for Netease Cloud Music",
+		UseFor: "Command line player for Netease Cloud Music and QQ Music",
 		Func:   runPlayer,
+		Config: func(c *gcli.Command) {
+			c.StrOpt(&GlobalOptions.SourceOverride, "source", "s", "",
+				"music source to start with: netease (default) or qq")
+		},
 	}
 	return cmd
 }
@@ -45,6 +49,12 @@ func runPlayer(_ *gcli.Command, _ []string) error {
 
 	if GlobalOptions.DebugMode || configs.AppConfig.Main.Debug {
 		slogx.LevelVar().Set(slog.LevelDebug)
+	}
+
+	// 命令行 --source 覆盖配置中的渠道选择。
+	// 必须在此处应用：gcli 在 app.Run() 中解析 flag，早于 NewNetease。
+	if GlobalOptions.SourceOverride != "" {
+		configs.AppConfig.Main.Source = GlobalOptions.SourceOverride
 	}
 
 	http.DefaultClient.Timeout = types.AppHttpTimeout
@@ -69,7 +79,8 @@ func runPlayer(_ *gcli.Command, _ []string) error {
 	eventHandler.RegisterGlobalHotkeys(opts)
 	netease.With(
 		model.WithHook(netease.InitHook, netease.CloseHook),
-		model.WithMainMenu(ui.NewMainMenu(netease), &model.MenuItem{Title: "网易云音乐"}),
+		// 顶栏标题显示当前渠道名，随 --source / [main].source 变化。
+		model.WithMainMenu(ui.NewMainMenu(netease), &model.MenuItem{Title: netease.SourceName()}),
 		func(options *model.Options) {
 			options.TeaOptions = []tea.ProgramOption{
 				tea.WithHardTabs(false),
