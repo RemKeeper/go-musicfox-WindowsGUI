@@ -3,6 +3,7 @@ package model
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
+
+type backgroundRect struct {
+	x int
+	y int
+	w int
+	h int
+}
 
 type App struct {
 	windowWidth  int
@@ -38,6 +46,8 @@ type App struct {
 	// theme from the global state (e.g. for multi-app or parallel-test scenarios).
 	styleSet *style.StyleSet
 
+	appBackgroundExclusion backgroundRect
+
 	listeningKBEventL    sync.Mutex
 	listeningMouseEventL sync.Mutex
 
@@ -47,6 +57,11 @@ type App struct {
 	// 必须使用 getPage（RLock）。主循环读取可直接访问 page，因为它们与唯一
 	// 写入者串行；从 goroutine 写入 page 前必须重新检查所有直接读取点。
 	pageMu sync.RWMutex
+
+	// rerenderPending 标记是否有一个 Rerender 投递 goroutine 正在等待
+	// program.Send。用于合并 Rerender 调用，防止 ticker 在帧渲染慢于 tick
+	// 间隔（高帧率 + 重渲染）时堆积无界数量的阻塞 goroutine。
+	rerenderPending atomic.Bool
 }
 
 // StyleSet returns the app-scoped StyleSet if one was set via SetStyleSet,
@@ -64,6 +79,28 @@ func (a *App) StyleSet() style.StyleSet {
 // this app's rendering uses the given StyleSet regardless of global changes.
 func (a *App) SetStyleSet(s style.StyleSet) {
 	a.styleSet = &s
+}
+
+// SetThemePair updates the dark and light variants used for future system
+// appearance changes.
+func (a *App) SetThemePair(dark, light style.Theme) {
+	a.options.DarkTheme = dark
+	a.options.LightTheme = light
+}
+
+// SetAppBackgroundExclusion excludes a terminal-cell rectangle from the app
+// background applied by Main.View. Invalid dimensions clear the exclusion.
+func (a *App) SetAppBackgroundExclusion(x, y, width, height int) {
+	if width <= 0 || height <= 0 {
+		a.appBackgroundExclusion = backgroundRect{}
+		return
+	}
+	a.appBackgroundExclusion = backgroundRect{x: x, y: y, w: width, h: height}
+}
+
+// ClearAppBackgroundExclusion restores application background rendering everywhere.
+func (a *App) ClearAppBackgroundExclusion() {
+	a.appBackgroundExclusion = backgroundRect{}
 }
 
 // NewApp create application
@@ -522,10 +559,18 @@ func (a *App) Rerender(cleanScreen bool) {
 	if a.program == nil {
 		return
 	}
-	// Send in a goroutine to avoid blocking on the unbuffered msgs channel.
-	// This is called from goroutines (e.g., ticker) and must not deadlock
-	// when the event loop is busy or hasn't started yet.
+	// Coalesce: at most one delivery goroutine may be pending. program.Send
+	// blocks on the unbuffered msgs channel until the event loop picks the
+	// message up; when a frame takes longer than the tick interval (high
+	// frame rates, heavy renderers), uncoalesced calls pile up unbounded
+	// goroutines that each hold a stale poke message. The delivered message
+	// is just a re-render poke and View always renders the current state, so
+	// dropping intermediate pokes is safe.
+	if !a.rerenderPending.CompareAndSwap(false, true) {
+		return
+	}
 	go func() {
+		defer a.rerenderPending.Store(false)
 		if cleanScreen {
 			a.program.Send(tea.ClearScreen())
 		}
@@ -672,6 +717,26 @@ func (a *App) completeTopModal() (Page, tea.Cmd) {
 // HasPopup returns whether a modal (popup or context menu) is currently active.
 func (a *App) HasPopup() bool {
 	return len(a.modalStack) > 0
+}
+
+// TopModalBounds returns the absolute screen rectangle (x, y, width, height) of
+// the topmost modal in the stack. The second return value is false when there is
+// no active modal. Callers should treat a true-but-zero-area result as an unplaced
+// modal whose bounds haven't been computed yet (first-frame race).
+func (a *App) TopModalBounds() (x, y, w, h int, ok bool) {
+	if len(a.modalStack) == 0 {
+		return 0, 0, 0, 0, false
+	}
+	top := a.modalStack[len(a.modalStack)-1]
+	switch m := top.(type) {
+	case *Popup:
+		x, y, w, h = m.Bounds()
+		return x, y, w, h, true
+	case *ContextMenu:
+		x, y, w, h = m.Bounds()
+		return x, y, w, h, true
+	}
+	return 0, 0, 0, 0, false
 }
 
 // compositeModals renders the base page content with all modals in the stack

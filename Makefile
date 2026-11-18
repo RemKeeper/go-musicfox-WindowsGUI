@@ -17,6 +17,13 @@ MODVENDOR_BIN := $(shell go env GOPATH)/bin/modvendor
 # ── OS 检测 ──────────────────────────────────────────────────────────────────
 # Windows_NT → 使用 PowerShell 构建脚本；其他系统 → 使用 Bash 构建脚本
 ifeq ($(OS),Windows_NT)
+    UNAME_S := Windows_NT
+else
+    UNAME_S := $(shell uname -s)
+endif
+IS_MACOS := $(filter Darwin,$(UNAME_S))
+
+ifeq ($(OS),Windows_NT)
     BUILD_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File hack\build.ps1
     NULL_DEV     := nul
     WHICH_CMD    := where
@@ -41,7 +48,7 @@ endif
 # build-macapp 仅在 macOS 下有效
 .PHONY: build-macapp
 build-macapp:
-ifneq ($(OS),Windows_NT)
+ifeq ($(IS_MACOS),Darwin)
 	@mkdir -p $(PACKAGE_ROOT)/bin
 	BUILD_TAGS="enable_global_hotkey,purego" $(BUILD_SCRIPT) build
 	@mkdir -p $(PACKAGE_ROOT)/bin/musicfox.app/Contents/MacOS
@@ -52,8 +59,9 @@ ifneq ($(OS),Windows_NT)
 	@cp $(PACKAGE_ROOT)/deploy/musicfox.app/Contents/Resources/Musicfox.icns $(PACKAGE_ROOT)/bin/musicfox.app/Contents/Resources/Musicfox.icns
 	@chmod +x $(PACKAGE_ROOT)/bin/musicfox.app/Contents/MacOS/go-musicfox
 	@chmod +x $(PACKAGE_ROOT)/bin/musicfox.app/Contents/MacOS/musicfox
+	@xattr -r -d com.apple.quarantine -- $(PACKAGE_ROOT)/bin/musicfox.app
 else
-	@echo "build-macapp is not supported on Windows"
+	@echo "build-macapp is only supported on macOS"
 endif
 
 .PHONY: init

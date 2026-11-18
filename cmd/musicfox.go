@@ -14,12 +14,19 @@ import (
 	"github.com/go-musicfox/go-musicfox/internal/runtime"
 	"github.com/go-musicfox/go-musicfox/internal/types"
 	mfoxapp "github.com/go-musicfox/go-musicfox/utils/app"
+	"github.com/go-musicfox/go-musicfox/utils/errorx"
 	"github.com/go-musicfox/go-musicfox/utils/filex"
-	_ "github.com/go-musicfox/go-musicfox/utils/slogx"
+	"github.com/go-musicfox/go-musicfox/utils/slogx"
 )
 
 func main() {
-	runtime.Run(musicfox)
+	// 以包装进程方式运行：崩溃（fatal error）时恢复终端并提示创建 issue。
+	// 子进程内可恢复的 panic 由 errorx.Recover 自行处理。
+	errorx.RunWrapped(func() {
+		// 尽早初始化日志（幂等），确保后续 panic/崩溃可被捕获到日志文件
+		slogx.Init()
+		runtime.Run(musicfox)
+	})
 }
 
 func musicfox() {
@@ -52,11 +59,6 @@ func musicfox() {
 
 	loadConfig()
 
-	// Sync CLI --debug flag to AppConfig so it's visible to all packages.
-	if commands.GlobalOptions.DebugMode {
-		configs.AppConfig.Main.Debug = true
-	}
-
 	util.PrimaryColor = configs.AppConfig.Theme.PrimaryColor
 	var (
 		logo         = util.GetAlphaAscii(app.Name)
@@ -78,6 +80,7 @@ func musicfox() {
 	playerCommand := commands.NewPlayerCommand()
 	app.Add(playerCommand)
 	app.Add(commands.NewConfigCommand())
+	app.Add(commands.NewUpgradeConfigCommand())
 	app.Add(commands.NewResetCommand())
 	app.DefaultCommand(playerCommand.Name)
 

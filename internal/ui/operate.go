@@ -36,6 +36,9 @@ import (
 // isSelected: true 获取当前选择歌曲，false 获取当前播放歌曲
 // 返回获取到的歌曲和一个布尔值，表示是否成功获取。
 func getTargetSong(n *Netease, isSelected bool) (structs.Song, bool) {
+	if n == nil || n.player == nil {
+		return structs.Song{}, false
+	}
 	if !isSelected {
 		if n.player.CurSongIndex() >= len(n.player.Playlist()) {
 			return structs.Song{}, false
@@ -217,6 +220,34 @@ func trashSong(n *Netease, isSelected bool) model.Page {
 	}
 
 	return NewOperation(n, coreLogic).ShowLoading().NeedsAuth().Execute()
+}
+
+// confirmTrashSong shows a confirmation popup before marking a song as
+// disliked. On confirm it runs trashSong (the API call is scheduled via
+// DeferWithLoading); app.Rerender(false) flushes the deferred work so the
+// loading state does not stall when the player ticker is idle.
+func confirmTrashSong(n *Netease, isSelected bool) {
+	content := "确定将歌曲标记为不喜欢吗？会影响个性化推荐。"
+	if song, ok := getTargetSong(n, isSelected); ok {
+		content = fmt.Sprintf("确定将「%s」标记为不喜欢吗？会影响个性化推荐。", song.Name)
+	}
+	showConfirmPopup(n.App, "标记为不喜欢", content, func() {
+		trashSong(n, isSelected)
+		n.App.Rerender(false)
+	})
+}
+
+// trashSongWithConfirm wraps trashSong with a confirmation popup for the
+// keybinding path. When login is required it falls through to trashSong so the
+// login redirect is preserved; the popup is only shown for authenticated users.
+// Returns a non-nil page only in the login-redirect case (so callers can re-run
+// the original return path with a tick).
+func trashSongWithConfirm(n *Netease, isSelected bool) model.Page {
+	if _struct.CheckUserInfo(n.user) == _struct.NeedLogin {
+		return trashSong(n, isSelected)
+	}
+	confirmTrashSong(n, isSelected)
+	return nil
 }
 
 // downloadSong 下载歌曲
@@ -811,7 +842,7 @@ func delSongFromPlaylist(n *Netease) model.Page {
 
 // clearSongCache 清除歌曲缓存
 func clearSongCache(n *Netease) {
-	action := func() {
+	showConfirmPopup(n.App, model.T(MsgPromptClearCache), "确定清除所有歌曲缓存吗？此操作不可撤销。", func() {
 		op := NewOperation(n, func(n *Netease) model.Page {
 			err := n.trackManager.ClearCache()
 			if err != nil {
@@ -834,11 +865,8 @@ func clearSongCache(n *Netease) {
 			return nil
 		})
 		op.ShowLoading().Execute()
-	}
-	menu := NewConfirmMenu(newBaseMenu(n), []ConfirmItem{
-		{title: model.MenuItem{Title: model.T(MsgPromptConfirm)}, action: action, backLevel: 1},
+		n.App.Rerender(false)
 	})
-	n.MustMain().EnterMenu(menu, &model.MenuItem{Title: model.T(MsgPromptClearCache), Subtitle: "确定清除缓存"})
 }
 
 // action 打开操作菜单
